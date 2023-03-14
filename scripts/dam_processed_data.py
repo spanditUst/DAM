@@ -22,7 +22,6 @@ def data_downloader(vehicle_list, db_txt, sta_dt, end_dt, field_list, row_id, fi
             f"event_datetime < {e_dt};"
 
     sql_df = dcu.execute_query(dcu.mysql_connection_sa(), query, 'return')
-
     filename = f"{row_id}/{store}/{db_txt}_tbl_{filename}.csv"
     sql_df.to_csv(filename, index=False)
 

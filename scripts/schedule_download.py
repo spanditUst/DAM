@@ -4,7 +4,7 @@ import logging
 import sys
 from datetime import datetime, timedelta, date
 import pandas as pd
-from data_access_module.scripts import dam_common_utils as dcu
+import dam_common_utils as dcu
 
 with open('../conf/dam_configuration.json', encoding='utf-8') as config_file:
     config = json.load(config_file)

@@ -28,7 +28,6 @@ def field_name_map(data_df, col_str, field_list):
 
     # Removing unnecessary characters from dataframe's field names
     data_df.columns = data_df.columns.str.replace("'", "")
-
     data_df = data_df[field_list]
 
     # Convert the 'epoch' column to datetime, using 2000-01-01 as the origin and UTC as the timezone

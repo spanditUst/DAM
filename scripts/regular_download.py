@@ -69,6 +69,7 @@ def main():
                            f"modified_time = '{datetime.now()}' " \
                            f"where id = '{row['id']}'"
             dcu.execute_query(dcu.mysql_connection_uptime(), query_update, 'no_return')
+
     else:
         logging.info("No downloads expired!!")
 

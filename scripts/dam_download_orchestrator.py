@@ -28,7 +28,6 @@ def vin_process(req_data):
     :param config: Parameter Configuration
     :return: Nothing
     """
-
     # Common data retrieval
     d_flag = 0
     row_id = str(req_data['id'])

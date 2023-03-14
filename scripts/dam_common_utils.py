@@ -3,13 +3,13 @@ import os
 import shutil
 import sys
 import logging
-from pathlib import Path
-from datetime import datetime, timedelta
 import ibm_boto3
 import pandas as pd
 import sqlalchemy as db
+from pathlib import Path
 from urllib.parse import quote
 from ibm_botocore.client import Config
+from datetime import datetime, timedelta
 
 with open('../conf/dam_configuration.json', encoding='utf-8') as config_file:
     config = json.load(config_file)
