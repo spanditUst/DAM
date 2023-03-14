@@ -122,8 +122,8 @@ def fetch_part_cloudant(filename, db_txt, month_list, start_dt, end_dt, vin_list
     client.disconnect()
 
     # Checking if any data is downloaded or not
-    if os.stat(filename).st_size == 0:
-        logging.info(f"Raw data not found. {filename} file empty!")
+    if os.stat(filename).st_size==0:
+        logging.info(f"Raw data not found! {filename} file empty!")
         os.remove(filename)
         status = 0
     else:
