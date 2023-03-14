@@ -42,7 +42,7 @@ def month_process(start_dt, end_dt):
     """
     This method will create the list of unique month falling between date range
     :param start_dt: requested start date
-    :param end_dt: requested end date
+    :param end_dt: requested end dat e
     :return: unique month list
     """
 
