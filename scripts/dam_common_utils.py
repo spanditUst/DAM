@@ -417,3 +417,18 @@ def ssd_operation(row_id):
         job_failed_update(row_id, 'SSD operation Failed')
         clean_raw_data(row_id)
 
+
+def dtc_process2(df_data, fields, master_df):
+    #Note: read master dtc data from cloudant/mysql tables
+
+    for ind, rowe in df_data.iterrows():
+        dtc_count = {master_df.query(f"spn == '{fault['spn']}' & fmi == '{fault['fmi']}'")['dtc_code'].iloc[-1]: fault['occuranceCount'] for fault in rowe['faults']}
+        for ky, vl in dtc_count.items():
+            df_data.at[ind, ky] = vl
+
+    for f in fields:
+        if f not in df_data.columns:
+            df_data[f] = 0
+
+    return df_data[fields]
+

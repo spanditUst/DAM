@@ -32,7 +32,8 @@ def field_name_map(data_df, col_str, field_list):
     # Handling wabco alert packet
     if data_df['type'] == 'ALT_BS6':
         pass
-    else
+    else:
+        pass
 
     # Splitting and Mapping 'value' field to their field names
     data_df[col_str.split(',')] = data_df['value'].str.split(',', expand=True)
@@ -238,30 +239,26 @@ def data_downloader(vins, db_txt, start_dt, end_dt, field_list_dd, row_id, fname
     return status
 
 
-# if __name__ == "__main__":
+if __name__ == "__main__":
 #     # data_downloader('35218066227302', 'wfaults', 20230126164152, 20230128164152, ['UTC','Live','Longitude','Device ID', 'eventDateTime'], '75', 'common', 'CLOUDANT')
 #
-#     query = ' and qwerty'
-#     query += ' and asdfgh'
-#     query += ' and zxcvbn'
-#
-#     print('select * from x where ' + query[5:])
-#     sys.exit()
-#
-#     file = '75/CLOUDANT/wfaults/common.txt'
-#     df = pd.read_json(file, lines=True)
-#     df.rename(columns={"devID": "Device ID", "utc": "UTC"}, inplace=True)
-#
-#     field_list = ['Device ID', 'UTC', '789', '795', '796', '797']
-#     # dtc_field_list = [d for d in field_list if d.startswith('dtc_')]
-#
-#     for i, row in df.iterrows():
-#         spn_count = {fault['spn']: fault['occuranceCount'] for fault in row['faults']}
-#         for k, v in spn_count.items():
-#             df.at[i, k] = v
-#
-#     for spn in field_list:
-#         if spn not in df.columns:
-#             df[spn] = 0
-#
-#     print(df[field_list].to_string())
+    file = 'common.txt'
+    df = pd.read_json(file, lines=True)
+    df.rename(columns={"devID": "Device ID", "utc": "UTC"}, inplace=True)
+
+    field_list = ['Device ID', 'UTC', 'P0789', 'P0790', 'P0791']
+    # dtc_field_list = [d for d in field_list if d.startswith('dtc_')]
+
+    df1 = pd.DataFrame(data=[['789','5','P0789'], ['790','5','P0790'], ['791', '5','P0791']],
+                      columns=['spn', 'fmi', 'dtc_code'])
+
+    for i, row in df.iterrows():
+        spn_count = {df1.query(f"spn == '{fault['spn']}' & fmi == '{fault['fmi']}'")['dtc_code'].iloc[-1]: fault['occuranceCount'] for fault in row['faults']}
+        for k, v in spn_count.items():
+            df.at[i, k] = v
+
+    for spn in field_list:
+        if spn not in df.columns:
+            df[spn] = 0
+
+    print(df[field_list].to_string())
