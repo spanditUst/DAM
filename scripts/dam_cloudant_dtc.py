@@ -6,10 +6,19 @@ import sys
 import pandas as pd
 from datetime import datetime
 from cloudant.client import Cloudant
+import dam_common_utils as dcu
 
-with open('data_access_module/conf/dam_configuration.json', encoding='utf-8') as config_file:
+with open('../conf/dam_configuration.json', encoding='utf-8') as config_file:
     config = json.load(config_file)
 config_file.close()
+
+fuel = config["cloudant_volvo_fuel_db"]
+behaviour = config["cloudant_volvo_alert_db"]
+wcanbs46 = config["cloudant_wabco_canbs4_db"]
+wcanbs6 = config["cloudant_wabco_canbs6_db"]
+wcan3bs6 = config["cloudant_wabco_can3bs6_db"]
+walert = config["cloudant_wabco_alert_db"]
+dtc = config["cloudant_dtc_db"]
 
 
 def field_name_map(data_df, col_str, field_list):
@@ -20,6 +29,11 @@ def field_name_map(data_df, col_str, field_list):
     :param field_list: fields selected by user
     :return: value data with field names
     """
+    # Handling wabco alert packet
+    if data_df['type'] == 'ALT_BS6':
+        pass
+    else
+
     # Splitting and Mapping 'value' field to their field names
     data_df[col_str.split(',')] = data_df['value'].str.split(',', expand=True)
 
@@ -28,6 +42,7 @@ def field_name_map(data_df, col_str, field_list):
 
     # Removing unnecessary characters from dataframe's field names
     data_df.columns = data_df.columns.str.replace("'", "")
+
     data_df = data_df[field_list]
 
     # Convert the 'epoch' column to datetime, using 2000-01-01 as the origin and UTC as the timezone
@@ -55,7 +70,7 @@ def month_process(start_dt, end_dt):
     return month_list
 
 
-def fetch_part_cloudant(filename, db_txt, month_list, start_dt, end_dt, vin_list, row_id):
+def fetch_part_cloudant(filename, db_txt, month_list, start_dt, end_dt, vin_list):
     """
     This Method download requested data into a file.
     :param filename: name of the downloaded data file
@@ -68,12 +83,8 @@ def fetch_part_cloudant(filename, db_txt, month_list, start_dt, end_dt, vin_list
     :return: Status
     """
 
-    cloudant_id = config['cloudant_id']
-    cloudant_password = config['cloudant_password']
-    cloudant_url = config['cloudant_url']
-
     # Creating the connection with Cloudant database.
-    client = Cloudant(cloudant_id, cloudant_password, url=cloudant_url, verify=False)
+    client = Cloudant(config['cloudant_id'], config['cloudant_password'], url=config['cloudant_url'], verify=False)
     client.disconnect()
     client.connect()
 
@@ -81,58 +92,64 @@ def fetch_part_cloudant(filename, db_txt, month_list, start_dt, end_dt, vin_list
     with open(filename, 'a', encoding='utf-8') as convert_file:
 
         # Iterating for every month. Each month data will be available in different database.
-        for mon in month_list:
-            db_name = db_txt + '_' + mon.lower()
+        for mon_yr in month_list:
+            db_name = db_txt + '_' + mon_yr.lower()
             db_conn = client[db_name]
 
             for veh in vin_list:
-                if 'fuel' in db_txt:
+                if fuel in db_txt:
                     results = db_conn.get_partitioned_query_result(partition_key=veh,
                                                                    selector={'eventDateTime': {'$lte': end_dt,
                                                                                                '$gte': start_dt}})
-
-                elif 'wcanbs46' in db_txt:
+                elif behaviour in db_txt:
+                    results = db_conn.get_partitioned_query_result(partition_key=veh,
+                                                                   selector={'eventDateTime': {'$lte': end_dt,
+                                                                                               '$gte': start_dt}})
+                elif wcanbs46 in db_txt:
                     results = db_conn.get_partitioned_query_result(partition_key=veh,
                                                                    selector={'eDateTime': {'$lte': end_dt,
                                                                                            '$gte': start_dt}})
-
-                elif 'wcanbs6' in db_txt:
+                elif wcanbs6 in db_txt:
                     results = db_conn.get_partitioned_query_result(partition_key=veh,
                                                                    selector={'eDateTime': {'$lte': end_dt,
                                                                                            '$gte': start_dt}})
-
-                elif 'wcan3bs6' in db_txt:
+                elif wcan3bs6 in db_txt:
                     results = db_conn.get_partitioned_query_result(partition_key=veh,
                                                                    selector={'eDateTime': {'$lte': end_dt,
                                                                                            '$gte': start_dt}})
-                elif 'wfaults' in db_txt:
+                elif walert in db_txt:
                     results = db_conn.get_partitioned_query_result(partition_key=veh,
                                                                    selector={'eDateTime': {'$lte': end_dt,
                                                                                            '$gte': start_dt}})
-
+                elif dtc in db_txt:
+                    results = db_conn.get_partitioned_query_result(partition_key=veh,
+                                                                   selector={'eDateTime': {'$lte': end_dt,
+                                                                                           '$gte': start_dt}})
                 else:
                     sys.exit("Input not Valid!!")
 
                 for res in results:
                     # removing the cloudant generated column from data
                     del res['_rev']
+                    del res['_id']
                     convert_file.write(json.dumps(res))
                     convert_file.write("\n")
 
-    # closing cloudant database connection
+    # closing cloudant database connection and opened file
     convert_file.close()
     client.disconnect()
 
     # Checking if any data is downloaded or not
-    if os.stat(filename).st_size == 0:
-        logging.info(f"Raw data not found. {filename} file empty!")
-        os.remove(filename)
-        status = 0
-    else:
-        logging.info(f"Raw data file {filename} downloaded.")
-        status = 1
-
-    return status
+    try:
+        if os.stat(filename).st_size == 0:
+            logging.info("Raw data not found. %s file empty!", filename)
+            os.remove(filename)
+            return 0
+        else:
+            logging.info("Raw data file %s downloaded.", filename)
+            return 1
+    except FileNotFoundError:
+        logging.warning('%s file not found', filename)
 
 
 def dwnld_prcs_data(filename, db_txt, field_config, field_list):
@@ -152,34 +169,43 @@ def dwnld_prcs_data(filename, db_txt, field_config, field_list):
     df_data = pd.read_json(filename, lines=True, convert_dates=False)
 
     # Removing the downloaded file
-    # os.remove(filename)
+    os.remove(filename)
 
     out_filename = filename.replace('.txt', '.csv')
 
-    if 'fuel' in db_txt:
+    # selecting only user selected columns and generating CSV files for output.
+    if fuel in db_txt:
         df_data[field_list].to_csv(out_filename, index=False)
 
-    elif 'wcanbs46' in db_txt:
-        field_name_map(df_data, field_config['canbs4'], field_list).to_csv(out_filename, index=False)
+    elif behaviour in db_txt:
+        df_data[field_list].to_csv(out_filename, index=False)
 
-    elif 'wcanbs6' in db_txt:
-        field_name_map(df_data, field_config['can2bs6'], field_list).to_csv(out_filename, index=False)
+    elif wcanbs46 in db_txt:
+        field_name_map(df_data, field_config[wcanbs46], field_list).to_csv(out_filename, index=False)
 
-    elif 'wcan3bs6' in db_txt:
-        field_name_map(df_data, field_config['can3bs6'], field_list).to_csv(out_filename, index=False)
+    elif wcanbs6 in db_txt:
+        field_name_map(df_data, field_config[wcanbs6], field_list).to_csv(out_filename, index=False)
 
-    elif 'wfaults' in db_txt:
-        pass
+    elif wcan3bs6 in db_txt:
+        field_name_map(df_data, field_config[wcan3bs6], field_list).to_csv(out_filename, index=False)
+
+    elif walert in db_txt:
+        field_name_map(df_data, field_config[wcan3bs6], field_list).to_csv(out_filename, index=False)
+
+    elif dtc in db_txt:
+        dcu.dtc_process2(df_data, field_list).to_csv(out_filename, index=False)
 
     else:
         sys.exit("Input not Valid!!")
+
+    # Checking if the file has data, and sending relevant status
     try:
         return 0 if os.stat(out_filename).st_size == 0 else 1
     except FileNotFoundError:
-        logging.info(f"{out_filename} file not found")
+        logging.info("%s file not found", out_filename)
 
 
-def data_downloader(vins, db_txt, start_dt, end_dt, field_list, row_id, fname, store):
+def data_downloader(vins, db_txt, start_dt, end_dt, field_list_dd, row_id, fname, store):
     """
     This method prepares the parameter values and call the method to download data
     :param config: configuration file string
@@ -190,34 +216,52 @@ def data_downloader(vins, db_txt, start_dt, end_dt, field_list, row_id, fname, s
     :return: Status
     """
     status = 0
-    logging.info(f"Initiating download from Cloudant for request {row_id}.")
+    logging.info("Initiating download from Cloudant for request: %s.", row_id)
     # Reading data from the field name files
     with open('data_access_module/conf/dam_field_name.json', encoding='utf-8') as field_file:
         field_config = json.load(field_file)
     field_file.close()
 
+    # creating file name from input to create separate files for separate vins in same request
     filename = f"data_access_module/scripts/{row_id}/{store}/{db_txt}/{fname}.txt"
+
     month_list = month_process(str(start_dt), str(end_dt))
     vin_list = vins.split(',')
     try:
-        status = fetch_part_cloudant(filename, db_txt, month_list, start_dt, end_dt, vin_list, row_id)
-    except KeyError as e:
+        status = fetch_part_cloudant(filename, db_txt, month_list, start_dt, end_dt, vin_list)
+    except KeyError:
         pass
 
     if status:
-        fin_status = dwnld_prcs_data(filename, db_txt, field_config, field_list)
-    else:
-        fin_status = 0
+        status = dwnld_prcs_data(filename, db_txt, field_config, field_list_dd)
 
-    return fin_status
+    return status
 
 
-if __name__ == "__main__":
-    # data_downloader('35218066227302', 'wfaults', 20230126164152, 20230128164152, ['UTC','Live','Longitude','Device ID', 'eventDateTime'], '75', 'common', 'CLOUDANT')
-
-    df = pd.read_json('data_access_module/scripts/75/CLOUDANT/wfaults/common.txt', lines=True, convert_dates=False)
-    df1 = pd.io.json.json_normalize(df['faults'])
-    print(df1)
-
-
-
+# if __name__ == "__main__":
+#     # data_downloader('35218066227302', 'wfaults', 20230126164152, 20230128164152, ['UTC','Live','Longitude','Device ID', 'eventDateTime'], '75', 'common', 'CLOUDANT')
+#
+#     query = ' and qwerty'
+#     query += ' and asdfgh'
+#     query += ' and zxcvbn'
+#
+#     print('select * from x where ' + query[5:])
+#     sys.exit()
+#
+#     file = '75/CLOUDANT/wfaults/common.txt'
+#     df = pd.read_json(file, lines=True)
+#     df.rename(columns={"devID": "Device ID", "utc": "UTC"}, inplace=True)
+#
+#     field_list = ['Device ID', 'UTC', '789', '795', '796', '797']
+#     # dtc_field_list = [d for d in field_list if d.startswith('dtc_')]
+#
+#     for i, row in df.iterrows():
+#         spn_count = {fault['spn']: fault['occuranceCount'] for fault in row['faults']}
+#         for k, v in spn_count.items():
+#             df.at[i, k] = v
+#
+#     for spn in field_list:
+#         if spn not in df.columns:
+#             df[spn] = 0
+#
+#     print(df[field_list].to_string())
