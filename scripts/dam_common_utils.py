@@ -18,6 +18,7 @@ config_file.close()
 table1 = config["req_tbl_main"]
 table2 = config["req_lkp_tbl_status"]
 mod_by = config["modified_by"]
+tm_fmt = config["timestamp_fmt"]
 
 
 def init_cos():
@@ -431,4 +432,11 @@ def dtc_process2(df_data, fields, master_df):
             df_data[f] = 0
 
     return df_data[fields]
+
+
+def convert_to_utc(date_str, time_str):
+    edatetime_str = date_str[4:] + date_str[2:4] + date_str[:2] + time_str
+    edatetime = datetime.strptime(edatetime_str, tm_fmt)
+    epoch_time = datetime.strptime("20000101000000", tm_fmt)
+    return int((edatetime - epoch_time).total_seconds())
 

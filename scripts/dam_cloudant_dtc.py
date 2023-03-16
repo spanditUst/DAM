@@ -29,11 +29,6 @@ def field_name_map(data_df, col_str, field_list):
     :param field_list: fields selected by user
     :return: value data with field names
     """
-    # Handling wabco alert packet
-    if data_df['type'] == 'ALT_BS6':
-        pass
-    else:
-        pass
 
     # Splitting and Mapping 'value' field to their field names
     data_df[col_str.split(',')] = data_df['value'].str.split(',', expand=True)
@@ -191,7 +186,7 @@ def dwnld_prcs_data(filename, db_txt, field_config, field_list):
         field_name_map(df_data, field_config[wcan3bs6], field_list).to_csv(out_filename, index=False)
 
     elif walert in db_txt:
-        field_name_map(df_data, field_config[wcan3bs6], field_list).to_csv(out_filename, index=False)
+        walert_process(df_data, field_config, field_list).to_csv(out_filename, index=False)
 
     elif dtc in db_txt:
         dcu.dtc_process2(df_data, field_list).to_csv(out_filename, index=False)
@@ -239,26 +234,48 @@ def data_downloader(vins, db_txt, start_dt, end_dt, field_list_dd, row_id, fname
     return status
 
 
+def walert_process(alert_data, field_config, field_list):
+    ais_col = field_config['ais']
+    non_ais_col = field_config['non-ais']
+
+    ais_alert_data = alert_data.loc[alert_data['type'].isin(["ALT_BS6"])]
+    if not ais_alert_data.empty:
+        ais_alert_data[ais_col.split(',')] = ais_alert_data['value'].str.split(',', expand=True)
+        ais_alert_data = ais_alert_data.loc[ais_alert_data['Packet Type'].isin(['HA', 'HB'])]
+        ais_alert_data['UTC'] = (ais_alert_data['Date'], ais_alert_data['Time']).apply(dcu.convert_to_utc)
+        ais_alert_data = ais_alert_data.pivot_table(columns='Packet Type', values="Speed", index=["Device ID", "UTC"]).reset_index()
+        ais_alert_data.filter(field_list)
+
+    non_ais_alert_data = alert_data.loc[alert_data['type'].isin(["ALT_ACC", "ALT_BRAKE"])]
+    if not non_ais_alert_data.empty:
+        non_ais_alert_data[non_ais_col.split(',')] = non_ais_alert_data['value'].str.split(',', expand=True)
+        non_ais_alert_data["HA"] = non_ais_alert_data["Severity"] if non_ais_alert_data["type"] == 'ALT_ACC' else 0
+        non_ais_alert_data["HB"] = non_ais_alert_data["Severity"] if non_ais_alert_data["type"] == 'ALT_BRAK' else 0
+        non_ais_alert_data.filter(field_list)
+
+    return pd.concat([ais_alert_data, non_ais_alert_data], axis=0)
+
+
 if __name__ == "__main__":
-#     # data_downloader('35218066227302', 'wfaults', 20230126164152, 20230128164152, ['UTC','Live','Longitude','Device ID', 'eventDateTime'], '75', 'common', 'CLOUDANT')
-#
-    file = 'common.txt'
-    df = pd.read_json(file, lines=True)
-    df.rename(columns={"devID": "Device ID", "utc": "UTC"}, inplace=True)
-
-    field_list = ['Device ID', 'UTC', 'P0789', 'P0790', 'P0791']
-    # dtc_field_list = [d for d in field_list if d.startswith('dtc_')]
-
-    df1 = pd.DataFrame(data=[['789','5','P0789'], ['790','5','P0790'], ['791', '5','P0791']],
-                      columns=['spn', 'fmi', 'dtc_code'])
-
-    for i, row in df.iterrows():
-        spn_count = {df1.query(f"spn == '{fault['spn']}' & fmi == '{fault['fmi']}'")['dtc_code'].iloc[-1]: fault['occuranceCount'] for fault in row['faults']}
-        for k, v in spn_count.items():
-            df.at[i, k] = v
-
-    for spn in field_list:
-        if spn not in df.columns:
-            df[spn] = 0
-
-    print(df[field_list].to_string())
+    pass
+    # data_downloader('35218066227302', 'wfaults', 20230126164152, 20230128164152, ['UTC','Live','Longitude','Device ID', 'eventDateTime'], '75', 'common', 'CLOUDANT')
+    # file = 'common.txt'
+    # df = pd.read_json(file, lines=True)
+    # df.rename(columns={"devID": "Device ID", "utc": "UTC"}, inplace=True)
+    #
+    # field_list = ['Device ID', 'UTC', 'P0789', 'P0790', 'P0791']
+    # # dtc_field_list = [d for d in field_list if d.startswith('dtc_')]
+    #
+    # df1 = pd.DataFrame(data=[['789','5','P0789'], ['790','5','P0790'], ['791', '5','P0791']],
+    #                   columns=['spn', 'fmi', 'dtc_code'])
+    #
+    # for i, row in df.iterrows():
+    #     spn_count = {df1.query(f"spn == '{fault['spn']}' & fmi == '{fault['fmi']}'")['dtc_code'].iloc[-1]: fault['occuranceCount'] for fault in row['faults']}
+    #     for k, v in spn_count.items():
+    #         df.at[i, k] = v
+    #
+    # for spn in field_list:
+    #     if spn not in df.columns:
+    #         df[spn] = 0
+    #
+    # print(df[field_list].to_string())
