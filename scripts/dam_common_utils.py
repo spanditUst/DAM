@@ -18,6 +18,7 @@ config_file.close()
 table1 = config["req_tbl_main"]
 table2 = config["req_lkp_tbl_status"]
 mod_by = config["modified_by"]
+tm_fmt = config["timestamp_fmt"]
 
 
 def init_cos():
@@ -416,4 +417,26 @@ def ssd_operation(row_id):
         logging.error("SSD operation Failed" + str(e))
         job_failed_update(row_id, 'SSD operation Failed')
         clean_raw_data(row_id)
+
+
+def dtc_process2(df_data, fields, master_df):
+    #Note: read master dtc data from cloudant/mysql tables
+
+    for ind, rowe in df_data.iterrows():
+        dtc_count = {master_df.query(f"spn == '{fault['spn']}' & fmi == '{fault['fmi']}'")['dtc_code'].iloc[-1]: fault['occuranceCount'] for fault in rowe['faults']}
+        for ky, vl in dtc_count.items():
+            df_data.at[ind, ky] = vl
+
+    for f in fields:
+        if f not in df_data.columns:
+            df_data[f] = 0
+
+    return df_data[fields]
+
+
+def convert_to_utc(date_str, time_str):
+    edatetime_str = date_str[4:] + date_str[2:4] + date_str[:2] + time_str
+    edatetime = datetime.strptime(edatetime_str, tm_fmt)
+    epoch_time = datetime.strptime("20000101000000", tm_fmt)
+    return int((edatetime - epoch_time).total_seconds())
 
