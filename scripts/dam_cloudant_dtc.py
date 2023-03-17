@@ -3,6 +3,7 @@ import logging
 import os
 import json
 import sys
+import numpy as np
 import pandas as pd
 from datetime import datetime
 from cloudant.client import Cloudant
@@ -212,14 +213,15 @@ def data_downloader(vins, db_txt, start_dt, end_dt, field_list_dd, row_id, fname
     :return: Status
     """
     status = 0
+
     logging.info("Initiating download from Cloudant for request: %s.", row_id)
     # Reading data from the field name files
-    with open('data_access_module/conf/dam_field_name.json', encoding='utf-8') as field_file:
+    with open('../conf/dam_field_name.json', encoding='utf-8') as field_file:
         field_config = json.load(field_file)
     field_file.close()
 
     # creating file name from input to create separate files for separate vins in same request
-    filename = f"data_access_module/scripts/{row_id}/{store}/{db_txt}/{fname}.txt"
+    filename = f"{row_id}/{store}/{db_txt}/{fname}.txt"
 
     month_list = month_process(str(start_dt), str(end_dt))
     vin_list = vins.split(',')
@@ -238,27 +240,29 @@ def walert_process(alert_data, field_config, field_list):
     ais_col = field_config['ais']
     non_ais_col = field_config['non-ais']
 
-    ais_alert_data = alert_data.loc[alert_data['type'].isin(["ALT_BS6"])]
-    if not ais_alert_data.empty:
-        ais_alert_data[ais_col.split(',')] = ais_alert_data['value'].str.split(',', expand=True)
-        ais_alert_data = ais_alert_data.loc[ais_alert_data['Packet Type'].isin(['HA', 'HB'])]
-        ais_alert_data['UTC'] = (ais_alert_data['Date'], ais_alert_data['Time']).apply(dcu.convert_to_utc)
-        ais_alert_data = ais_alert_data.pivot_table(columns='Packet Type', values="Speed", index=["Device ID", "UTC"]).reset_index()
-        ais_alert_data.filter(field_list)
+    ais_alert_df = alert_data.loc[alert_data['type'].isin(["ALT_BS6"])]
+    if not ais_alert_df.empty:
+        ais_alert_df[ais_col.split(',')] = ais_alert_df['value'].str.split(',', expand=True)
+        ais_alert_df.columns = ais_alert_df.columns.str.replace("'", "")
+        ais_alert_df = ais_alert_df.loc[ais_alert_df['Packet Type'].isin(['HA', 'HB'])]
+        ais_alert_df['UTC'] = ais_alert_df.apply(lambda x: dcu.convert_to_utc(x['Date'], x['Time']), axis=1)
+        ais_alert_df = ais_alert_df.pivot_table(columns='Packet Type', values="Speed", index=["Device ID", "UTC"]).reset_index()
 
-    non_ais_alert_data = alert_data.loc[alert_data['type'].isin(["ALT_ACC", "ALT_BRAKE"])]
-    if not non_ais_alert_data.empty:
-        non_ais_alert_data[non_ais_col.split(',')] = non_ais_alert_data['value'].str.split(',', expand=True)
-        non_ais_alert_data["HA"] = non_ais_alert_data["Severity"] if non_ais_alert_data["type"] == 'ALT_ACC' else 0
-        non_ais_alert_data["HB"] = non_ais_alert_data["Severity"] if non_ais_alert_data["type"] == 'ALT_BRAK' else 0
-        non_ais_alert_data.filter(field_list)
+    non_ais_alert_df = alert_data.loc[alert_data['type'].isin(["ALT_ACC", "ALT_BRAKE"])]
+    if not non_ais_alert_df.empty:
+        non_ais_alert_df[non_ais_col.split(',')] = non_ais_alert_df['value'].str.split(',', expand=True)
+        non_ais_alert_df.columns = non_ais_alert_df.columns.str.replace("'", "")
+        non_ais_alert_df = non_ais_alert_df.assign(HA=0, HB=0)
+        non_ais_alert_df.loc[non_ais_alert_df['type'] == 'ALT_ACC', 'HA'] = non_ais_alert_df["Severity"]
+        non_ais_alert_df.loc[non_ais_alert_df['type'] == 'ALT_BRAKE', 'HB'] = non_ais_alert_df["Severity"]
 
-    return pd.concat([ais_alert_data, non_ais_alert_data], axis=0)
+    final_df = pd.concat([ais_alert_df, non_ais_alert_df], axis=0)[field_list]
+
+    return final_df
 
 
 if __name__ == "__main__":
-    pass
-    # data_downloader('35218066227302', 'wfaults', 20230126164152, 20230128164152, ['UTC','Live','Longitude','Device ID', 'eventDateTime'], '75', 'common', 'CLOUDANT')
+    data_downloader('352467110465742,352467110967697', 'walert', 20230126164152, 20230128164152, ['Device ID', 'UTC', 'HA', 'HB'], '75', 'common', 'CLOUDANT')
     # file = 'common.txt'
     # df = pd.read_json(file, lines=True)
     # df.rename(columns={"devID": "Device ID", "utc": "UTC"}, inplace=True)
