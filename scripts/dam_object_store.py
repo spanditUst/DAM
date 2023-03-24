@@ -3,15 +3,22 @@ import os
 import glob
 import json
 import logging
-import pandas as pd
 from pathlib import Path
-import dam_common_utils as dcu
+import pandas as pd
 from datetime import datetime, timedelta
+from ibm_botocore import exceptions
+import dam_common_utils as dcu
 
 with open('../conf/dam_configuration.json', encoding='utf-8') as config_file:
     config = json.load(config_file)
 config_file.close()
 
+fuel = config["cloudant_volvo_fuel_db"]
+behaviour = config["cloudant_volvo_alert_db"]
+wcanbs46 = config["cloudant_wabco_canbs4_db"]
+wcanbs6 = config["cloudant_wabco_canbs6_db"]
+wcan3bs6 = config["cloudant_wabco_can3bs6_db"]
+dtc = config["cloudant_dtc_db"]
 
 def packet_name(db_txt):
     """
@@ -19,13 +26,13 @@ def packet_name(db_txt):
     :param db_txt: packet name
     :return: COS specified packet name
     """
-    if 'fuel' in db_txt:
+    if fuel in db_txt:
         val = 'FUEL'
-    elif 'wcanbs46' in db_txt:
+    elif wcanbs46 in db_txt:
         val = 'CANBS4'
-    elif 'wcanbs6' in db_txt:
+    elif wcanbs6 in db_txt:
         val = 'CAN2BS6'
-    elif 'wcan3bs6' in db_txt:
+    elif wcan3bs6 in db_txt:
         val = 'CAN3BS6'
     else:
         val = 'NA'
@@ -79,17 +86,16 @@ def dwnld_prcs_data(cos, final_list, bucket_name, sta_dt, end_dt, vehicle_list, 
     """
     if final_list != '':
         for item in final_list:
-            logging.info(f"{item} will be downloaded.")
+            logging.info("%s will be downloaded.", item)
 
             dwnld_file_name = f'{row_id}/{store}/parquet_folder/' + item.replace('/', '_')
-            par_file_list = os.listdir(f'{row_id}/{store}/parquet_folder/')
-            if dwnld_file_name.replace(f'{row_id}/{store}/parquet_folder/', '') not in par_file_list:
+            if dwnld_file_name.replace(f'{row_id}/{store}/parquet_folder/', '') not in os.listdir(f'{row_id}/{store}/parquet_folder/'):
                 logging.info("Checking for request cancellation")
                 dcu.check_cancellation_request(row_id)
                 try:
                     cos.Object(bucket_name, item).download_file(dwnld_file_name)
-                except:
-                    logging.warning(f"COS download error for {item}")
+                except exceptions.ClientError as error:
+                    logging.warning("COS download error message: %s", error)
                     continue
             else:
                 logging.info("File already available!")
@@ -102,10 +108,10 @@ def dwnld_prcs_data(cos, final_list, bucket_name, sta_dt, end_dt, vehicle_list, 
             raw_df = raw_df[raw_df['deviceId'].isin(veh_list)]
             raw_df['eventDateTime'] = pd.to_datetime(raw_df['utc'].astype('int64') + 946684800, unit='s')
             df1 = raw_df[(raw_df['eventDateTime'] > sta_dt) & (raw_df['eventDateTime'] < end_dt)]
-            filtered_df = df1[field_list]
+            df1 = dcu.dtc_process2(df1, field_list)
 
             # Downloading file in CSV format
-            filtered_df.to_csv(dwnld_file_name.replace('.parquet', '.csv').replace('parquet_folder', 'intercsv_folder'), index=False)
+            df1.to_csv(dwnld_file_name.replace('.parquet', '.csv').replace('parquet_folder', 'intercsv_folder'), index=False)
 
         # reading all the CSV file into one dataframe
         temp_df = pd.concat([pd.read_csv(f) for f in glob.glob(f"{row_id}/{store}/intercsv_folder/*.csv")], ignore_index=True)
@@ -115,17 +121,16 @@ def dwnld_prcs_data(cos, final_list, bucket_name, sta_dt, end_dt, vehicle_list, 
         filename = f"{row_id}/{store}/{db_txt}/{filename}.csv"
         temp_df.to_csv(filename, index=False)
 
-        file_list = os.listdir(f'{row_id}/{store}/intercsv_folder/')
-        for f in file_list:
+        for f in os.listdir(f'{row_id}/{store}/intercsv_folder/'):
             os.remove(f"{row_id}/{store}/intercsv_folder/{f}")
 
     else:
         logging.warning("No items for download")
 
-    if os.stat(filename).st_size == 0:
-        return 1
-    else:
-        return 0
+    try:
+        return 0 if os.stat(filename).st_size == 0 else 1
+    except FileNotFoundError:
+        logging.warning('%s file not found', filename)
 
 
 def data_downloader(vehicle_list, db_txt, sta_dt, end_dt, field_list, row_id, filename, store):
@@ -144,14 +149,13 @@ def data_downloader(vehicle_list, db_txt, sta_dt, end_dt, field_list, row_id, fi
     date_list = date_decode(str(sta_dt), str(end_dt))
     key_list = ['edt=' + d for d in date_list]
     pkt_name = 'pkt=' + packet_name(db_txt)
-    pre_list = [k1 + '/' + pkt_name for k1 in key_list]
-    if vehicle_list != 'ALL':
-        pre_list = filename_decode(vehicle_list, pre_list)
-    final_list = keyname_decode(cos, bucket_name, pre_list)
+    veh_list = [k1 + '/' + pkt_name for k1 in key_list]
+    veh_list = filename_decode(vehicle_list, veh_list)
+    veh_list = keyname_decode(cos, bucket_name, veh_list)
 
     Path(f"{row_id}/{store}/parquet_folder").mkdir(parents=True, exist_ok=True)
     Path(f"{row_id}/{store}/intercsv_folder").mkdir(parents=True, exist_ok=True)
 
-    status = dwnld_prcs_data(cos, final_list, bucket_name, str(sta_dt), str(end_dt), vehicle_list, field_list, db_txt, row_id, filename, store)
+    status = dwnld_prcs_data(cos, veh_list, bucket_name, str(sta_dt), str(end_dt), vehicle_list, field_list, db_txt, row_id, filename, store)
     return status
 

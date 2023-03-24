@@ -1,3 +1,4 @@
+"""This script contains method for reusability and de cluttering of the main method"""
 import json
 import os
 import shutil
@@ -18,12 +19,10 @@ config_file.close()
 table1 = config["req_tbl_main"]
 table2 = config["req_lkp_tbl_status"]
 mod_by = config["modified_by"]
-tm_fmt = config["timestamp_fmt"]
 
 
 def init_cos():
     """
-    :param config: Configuration File
     :return: COS connect string
     """
     cos_endpoint = config['COS_ENDPOINT']
@@ -95,7 +94,7 @@ def clean_ssd_data(row_id):
                 f"where id = {row_id};"
         execute_query(mysql_connection_uptime(), query, 'no_return')
     except OSError as e:
-        logging.warning("Removal of the SSD data failed!" + str(e))
+        logging.warning("Removal of the SSD data failed!: %s", e)
 
 
 def execute_query(conn, query, return_type):
@@ -131,10 +130,11 @@ def prep_fields(field, pac, store):
     if store == 'PROCESSED':
         f_list = list(set(['chassis_number', 'event_datetime'] + field.tolist()))
     else:
+        volvo_db_list = config["cloudant_volvo_fuel_db"], config["cloudant_volvo_alert_db"]
         if store == 'COS':
-            f_list = field.tolist if pac == 'FUEL' else list(set(['deviceId', 'utc'] + field.tolist()))
+            f_list = field.tolist if pac in [volvo_db_list] else list(set(['deviceId', 'utc'] + field.tolist()))
         else:
-            f_list = field.tolist if pac == 'FUEL' else list(set(['Device ID', 'UTC'] + field.tolist()))
+            f_list = field.tolist if pac in [volvo_db_list] else list(set(['Device ID', 'UTC'] + field.tolist()))
 
     return f_list
 
@@ -185,7 +185,7 @@ def check_cancellation_request(row_id):
             clean_raw_data(row_id)
             sys.exit("Gracefully Exiting the Download Process!")
     except Exception as e:
-        logging.warning("Except block message: " + str(e))
+        logging.warning("Except block message: %s", e)
         job_failed_update(row_id, 'Data Download Request failed')
 
 
@@ -202,14 +202,15 @@ def job_failed_update(row_id, msg):
     sys.exit("Exiting Process!")
 
 
-def multi_store_concat(row_id, packet, cloudant_fields, cos_fields, prcs_flag):
+def store_concat(row_id, packet, cloudant_fields, cos_fields, prcs_flag):
     ret_df = pd.DataFrame()
-    logging.info(f"Starting the concatenation of {packet}")
+    logging.info("Starting the concatenation of %s", packet)
     if not prcs_flag:
         store = ''
 
         try:
-            name_replace_dict = {cloudant_fields.tolist()[i]: cos_fields.tolist()[i] for i in range(len(cloudant_fields))}
+            name_replace_dict = {cloudant_fields.tolist()[i]: cos_fields.tolist()[i] for i in
+                                 range(len(cloudant_fields))}
             cos_file_list = os.listdir(f'{row_id}/COS/{packet}/')
             if cos_file_list:
                 cos_combined_df = pd.concat([pd.read_csv(f"{row_id}/COS/{packet}/{f}") for f in cos_file_list], axis=0)
@@ -220,7 +221,8 @@ def multi_store_concat(row_id, packet, cloudant_fields, cos_fields, prcs_flag):
         try:
             cld_file_list = os.listdir(f'{row_id}/CLOUDANT/{packet}/')
             if cld_file_list:
-                cld_combined_df = pd.concat([pd.read_csv(f"{row_id}/CLOUDANT/{packet}/{f}") for f in cld_file_list], axis=0)
+                cld_combined_df = pd.concat([pd.read_csv(f"{row_id}/CLOUDANT/{packet}/{f}") for f in cld_file_list],
+                                            axis=0)
                 store = store + 'cld'
         except FileNotFoundError:
             pass
@@ -248,15 +250,15 @@ def merge_data(row_id):
     """
     file_list = os.listdir(f'{row_id}/')
     wabco_list = [f for f in file_list if 'wcan' in f and f.endswith('.csv')]
-    volvo_list = [f for f in file_list if 'fuel' in f]
-    prcsd_list = [f for f in file_list if 'tbl' in f]
+    volvo_list = [f for f in file_list if 'fuel' in f or 'behaviour' in f]
+    # prcsd_list = [f for f in file_list if 'tbl' in f]
 
     logging.info('Merging Data for Volvo')
     merged_v = merge_data_ext(row_id, volvo_list, col=['Chassis_number', 'eventDateTime'])
     logging.info('Merging Data for Wabco')
     merged_w = merge_data_ext(row_id, wabco_list, col=['Device ID', 'UTC'])
-    logging.info('Merging Processed Data')
-    merged_p = merge_data_ext(row_id, prcsd_list, col=['chassis_number', 'event_datetime'])
+    # logging.info('Merging Processed Data')
+    # merged_p = merge_data_ext(row_id, prcsd_list, col=['chassis_number', 'event_datetime'])
 
     if not merged_v.empty:
         merged_v.to_csv(f'{row_id}/volvo_merged_data_{row_id}.csv', index=False)
@@ -266,10 +268,10 @@ def merge_data(row_id):
         merged_w.to_csv(f'{row_id}/wabco_merged_data_{row_id}.csv', index=False)
         for f in wabco_list:
             os.remove(f'{row_id}/{f}')
-    if not merged_p.empty:
-        merged_p.to_csv(f'{row_id}/processed_merged_data_{row_id}.csv', index=False)
-        for f in prcsd_list:
-            os.remove(f'{row_id}/{f}')
+    # if not merged_p.empty:
+    #     merged_p.to_csv(f'{row_id}/processed_merged_data_{row_id}.csv', index=False)
+    #     for f in prcsd_list:
+    #         os.remove(f'{row_id}/{f}')
 
 
 def merge_data_ext(row_id, file_list, col):
@@ -309,39 +311,39 @@ def vin_selector(req_data):
     """
     # Creating base query string
     row_id = str(req_data['id'])
-    telematics = req_data['request_telematics_name']
-    fert_no = req_data['request_fert_code']
-    fuel_type = req_data['request_fuel_type']
-    bs_norm = req_data['request_bs_norm']
-    vehicle_model = req_data['request_vehicle_model']
-    engine_series = req_data['request_engine_series']
-    vertical = req_data['request_vertical']
-    mfg_yr = req_data['request_manufacture_year']
-    mfg_mon = req_data['request_manufacture_month']
 
     table = config['request_tag_view']
+    fuel_type = req_data['request_fuel_type'].replace(',', '\',\'')
+    bsnorm = req_data['request_bs_norm'].replace(',', '\',\'')
+    veh_mod = req_data['request_vehicle_model'].replace(',', '\',\'')
+    eng_ser = req_data['request_engine_series'].replace(',', '\',\'')
+    verti = req_data['request_vertical'].replace(',', '\',\'')
+    fert_cd = req_data['request_fert_code'].replace(',', '\',\'')
+    tele_nm = req_data['request_telematics_name'].replace(',', '\',\'')
+    mfg_yr = req_data['request_manufacture_year'].replace(',', '\',\'')
+    mfg_mn = req_data['request_manufacture_month'].replace(',', '\',\'')
+
     base = f"select CASE when upper(telematics_name) = 'VOLVO' then vin else device_id end as device_id from {table} where "
-    mfg_str = f'{mfg_yr}-{mfg_mon}'
 
     # Creating query string for filtering
-    fuel_str = f" and fuel_type in ('{fuel_type}')" if fuel_type != '' else ''
-    bsnorm_str = f" and bsnorm in ('{bs_norm}')" if bs_norm != '' else ''
-    vehicle_model_str = f" and vehicle_model in ('{vehicle_model}')" if vehicle_model != '' else ''
-    engine_series_str = f" and engine_series in ('{engine_series}')" if engine_series != '' else ''
-    vertical_str = f" and vertical in ('{vertical}')" if vertical != '' else ''
-    fert_no_str = f" and fert_no in ('{fert_no}')" if fert_no != '' else ''
-    mfg_date_str = f" and year(mfg_date) in ('{mfg_yr}') and month(mfg_date) in ('{mfg_mon}')" if mfg_yr != '' else ''
-    telematics_str = f" and telematics_name in ('{telematics}')" if telematics != '' else ''
+    query = ''
+    query += f" and fuel_type in ('{fuel_type}')" if fuel_type != '' else ''
+    query += f" and bsnorm in ('{bsnorm}')" if bsnorm != '' else ''
+    query += f" and vehicle_model in ('{veh_mod}')" if veh_mod != '' else ''
+    query += f" and engine_series in ('{eng_ser}')" if eng_ser != '' else ''
+    query += f" and vertical in ('{verti}')" if verti != '' else ''
+    query += f" and fert_no in ('{fert_cd}')" if fert_cd != '' else ''
+    query += f" and year(mfg_date) in ('{mfg_yr}') and month(mfg_date) in ('{mfg_mn}')" if mfg_yr != '' else ''
+    query += f" and telematics_name in ('{tele_nm}')" if tele_nm != '' else ''
 
     # Creating query string for selecting random
-    random_query = f" ORDER BY RAND() LIMIT {req_data['request_max_vin_count']}"
+    query += f" ORDER BY RAND() LIMIT {req_data['request_max_vin_count']}"
 
     # Concatenating strings to build final query
-    query = fuel_str + bsnorm_str + vehicle_model_str + engine_series_str + vertical_str + fert_no_str + mfg_date_str + telematics_str + random_query
-    final_query = base + query[5:]
-    logging.info(f"Tag filter query: {final_query}")
+    query = base + query[5:]
+    logging.info("Tag filter query: %s", query)
 
-    sql_df = execute_query(mysql_connection_uptime(), final_query, 'return')
+    sql_df = execute_query(mysql_connection_uptime(), query, 'return')
 
     # Creating list of vins from the returned output
     if not sql_df.empty:
@@ -351,6 +353,7 @@ def vin_selector(req_data):
         return vin_str[1:]
     else:
         job_failed_update(row_id, 'No Vehicle selected after applying the tag filters')
+        return 0
 
 
 def process_value_filter(value_filters, field_id):
@@ -414,16 +417,14 @@ def ssd_operation(row_id):
         execute_query(mysql_connection_uptime(), query, 'no_return')
 
     except OSError as e:
-        logging.error("SSD operation Failed" + str(e))
+        logging.error("SSD operation Failed: %s", e)
         job_failed_update(row_id, 'SSD operation Failed')
         clean_raw_data(row_id)
 
 
-def dtc_process2(df_data, fields, master_df):
-    #Note: read master dtc data from cloudant/mysql tables
-
+def dtc_process2(df_data, fields):
     for ind, rowe in df_data.iterrows():
-        dtc_count = {master_df.query(f"spn == '{fault['spn']}' & fmi == '{fault['fmi']}'")['dtc_code'].iloc[-1]: fault['occuranceCount'] for fault in rowe['faults']}
+        dtc_count = {fault['spn']: fault['occuranceCount'] for fault in rowe['faults']}
         for ky, vl in dtc_count.items():
             df_data.at[ind, ky] = vl
 

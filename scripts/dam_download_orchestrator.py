@@ -28,10 +28,10 @@ def vin_process(req_data):
     :param config: Parameter Configuration
     :return: Nothing
     """
+
     # Common data retrieval
     d_flag = 0
     row_id = str(req_data['id'])
-    vin_list = req_data['request_vin_list']
     field_id_plus, value_filter_str = dcu.process_value_filter(req_data['request_filter_condition'],
                                                                req_data['field_tag_id'])
 
@@ -51,7 +51,7 @@ def vin_process(req_data):
 
     field_tuple = (cloudant_field_dict, cos_field_dict, processed_field_dict)
 
-    if not vin_list:
+    if not req_data['request_vin_list']:
         logging.info("Vehicles will be randomly selected after filtering wth tags!")
         from_time = str(req_data['request_from_time']).replace('-', '').replace(':', '').replace(' ', '')
         to_time = str(req_data['request_to_time']).replace('-', '').replace(':', '').replace(' ', '')
@@ -61,7 +61,7 @@ def vin_process(req_data):
         logging.info("Vehicles are manually entered by user!")
         offset_month = req_data['request_number_of_months']
         tmp_fmt = config['timestamp_fmt']
-        for vin_data in json.loads(vin_list):
+        for vin_data in json.loads(req_data['request_vin_list']):
             tme = datetime.strptime(vin_data['dateoffailure'], config['date_format'])
 
             from_time_fmt = tme - timedelta(days=1 * int(offset_month))
@@ -69,28 +69,27 @@ def vin_process(req_data):
             to_time = datetime.strftime(tme, tmp_fmt)
             d_flag += download_data(row_id, field_tuple, vin_data['vin'], str(from_time), str(to_time), vin_data['vin'])
 
-
     # Concatenating and Merging Files
     for packet in cloudant_field_dict.keys():
         Path(f"{row_id}/{packet}").mkdir(parents=True, exist_ok=True)
-        concat_df = dcu.multi_store_concat(row_id, packet, cloudant_field_dict[packet], cos_field_dict[packet], prcs_flag=0)
+        concat_df = dcu.store_concat(row_id, packet, cloudant_field_dict[packet], cos_field_dict[packet], prcs_flag=0)
         if not concat_df.empty:
             concat_df.to_csv(f'{row_id}/{packet}.csv', index=False)
 
     for packet in processed_field_dict.keys():
-        concat_df = dcu.multi_store_concat(row_id, packet, '', '', prcs_flag=1)
+        concat_df = dcu.store_concat(row_id, packet, '', '', prcs_flag=1)
         if not concat_df.empty:
             concat_df.to_csv(f'{row_id}/mysql_merged_data.csv', index=False)
 
     try:
         dcu.merge_data(row_id)
     except OSError as e:
-        logging.error(f"File system issue occured.{e}")
+        logging.error("File system issue occured : %s", e)
         dcu.job_failed_update(row_id, str(e))
-    if not value_filter_str=='':
+    if not value_filter_str == '':
         dcu.apply_value_filter(row_id, value_filter_str)
-    # dcu.ssd_operation(row_id)
-    # dcu.clean_raw_data(row_id)
+    dcu.ssd_operation(row_id)
+    dcu.clean_raw_data(row_id)
 
     if d_flag:
         logging.info("All the packets were downloaded")
@@ -130,7 +129,7 @@ def download_data(row_id, field_tuple, vin_list, from_time, to_time, filename):
     :return: Nothing
     """
     # Creating the directory for all downloads
-    logging.info(f"Creating Directory for request id: {row_id}")
+    logging.info("Creating Directory for request id: %s", row_id)
     try:
         Path(f"{row_id}/COS").mkdir(parents=True, exist_ok=True)
         Path(f"{row_id}/CLOUDANT").mkdir(parents=True, exist_ok=True)
@@ -157,14 +156,17 @@ def download_data(row_id, field_tuple, vin_list, from_time, to_time, filename):
         raw_status = download_iteration_storewise(vin_list, cos_field_dict, row_id, from_time, to_time, 'COS', filename)
     else:
         logging.info('Requesting data from both Cloudant and COS DB')
-        raw_status1 = download_iteration_storewise(vin_list, cos_field_dict, row_id, from_time, archival_time_str, 'COS', filename)
-        raw_status2 = download_iteration_storewise(vin_list, cloudant_field_dict, row_id, archival_time_str, to_time, 'CLOUDANT', filename)
+        raw_status1 = download_iteration_storewise(vin_list, cos_field_dict, row_id, from_time, archival_time_str,
+                                                   'COS', filename)
+        raw_status2 = download_iteration_storewise(vin_list, cloudant_field_dict, row_id, archival_time_str, to_time,
+                                                   'CLOUDANT', filename)
         raw_status = 1 if raw_status1 == 1 and raw_status2 == 1 else 0
 
     prcsd_status = 1
     if processed_field_dict:
         logging.info("Requesting data from DB tables")
-        prcsd_status = download_iteration_storewise(vin_list, processed_field_dict, row_id, archival_time, to_time, 'PROCESSED', filename)
+        prcsd_status = download_iteration_storewise(vin_list, processed_field_dict, row_id, archival_time, to_time,
+                                                    'PROCESSED', filename)
 
     # Changing the COS field names to cloudant field names
 
@@ -172,10 +174,7 @@ def download_data(row_id, field_tuple, vin_list, from_time, to_time, filename):
     final_status = 1 if raw_status == 1 and prcsd_status == 1 else 0
 
     # Updating the request table based on the status of the download
-    if final_status:
-        return 0
-    else:
-        return 1
+    return 0 if final_status else 1
 
 
 def download_iteration_storewise(vin_list, field_dict, row_id, from_time, to_time, store, fname):
