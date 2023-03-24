@@ -21,6 +21,7 @@ table2 = config["req_lkp_tbl_status"]
 mod_by = config["modified_by"]
 tm_fmt = config["timestamp_fmt"]
 
+
 def init_cos():
     """
     :return: COS connect string
@@ -75,6 +76,7 @@ def clean_raw_data(row_id):
         shutil.rmtree(f"{row_id}/")
     except OSError:
         logging.warning("Removal of the raw data failed!")
+
 
 
 def clean_ssd_data(row_id):
