@@ -32,13 +32,15 @@ def main():
                     f"m.request_filter_condition, " \
                     f"m.request_max_vin_count, " \
                     f"m.request_number_of_months, " \
-                    f"group_concat(s2.field_tag_id separator ',') as field_tag_id " \
+                    f"s2.field_ids as field_tag_id " \
                     f"from {table1} m " \
                     f"inner join {table2} s1 " \
                     f"on m.request_status_id = s1.id " \
                     f"and UPPER(s1.name) = 'REQUESTED' " \
                     f"and s1.is_visible = 1 " \
-                    f"left outer join {field_table} s2 " \
+                    f"left outer join (select data_access_request_id, " \
+                    f"group_concat(field_tag_id separator ',') as field_ids " \
+                    f"from {field_table} group by data_access_request_id) s2 " \
                     f"on m.id = s2.data_access_request_id " \
                     f"where m.is_active = 1 " \
                     f"and m.is_deleted = 0 " \
@@ -90,3 +92,6 @@ if __name__ == "__main__":
 
     logging.info("\n\n\nStarting the Data Access Module Program")
     main()
+
+    # a = 'sjhdj,adshfgvj'
+    # print(a.replace(',', '\',\''))

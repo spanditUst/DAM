@@ -102,11 +102,11 @@ def main():
 
         row_df = pd.DataFrame.from_records(data)
         if not row_df.empty:
-            fin_df = row_df.fillna(value='')
-            fin_df.drop(columns=['id', 'frequency'], inplace=True)
+            # fin_df = row_df.fillna(value='')
+            row_df.drop(columns=['id', 'frequency'], inplace=True)
 
         # Insert df into uptime request table
-        fin_df.to_sql(name=req_table, con=dcu.mysql_connection_uptime(), if_exists='append', index=False, )
+        row_df.to_sql(name=req_table, con=dcu.mysql_connection_uptime(), if_exists='append', index=False)
     else:
         logging.info("No scheduled job found")
         sys.exit(" Exiting process!")
