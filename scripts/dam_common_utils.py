@@ -19,6 +19,7 @@ config_file.close()
 table1 = config["req_tbl_main"]
 table2 = config["req_lkp_tbl_status"]
 mod_by = config["modified_by"]
+tm_fmt = config["timestamp_fmt"]
 
 
 def init_cos():
