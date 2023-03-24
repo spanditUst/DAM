@@ -21,7 +21,6 @@ table2 = config["req_lkp_tbl_status"]
 mod_by = config["modified_by"]
 tm_fmt = config["timestamp_fmt"]
 
-
 def init_cos():
     """
     :return: COS connect string
