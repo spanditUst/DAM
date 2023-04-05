@@ -78,7 +78,6 @@ def clean_raw_data(row_id):
         logging.warning("Removal of the raw data failed!")
 
 
-
 def clean_ssd_data(row_id):
     """
     This method removes the downloaded file from SSD and update the request table
@@ -313,17 +312,18 @@ def vin_selector(req_data):
     """
     # Creating base query string
     row_id = str(req_data['id'])
-
+    tag_dict = json.loads(req_data['request_attribute_list'])
     table = config['request_tag_view']
-    fuel_type = req_data['request_fuel_type'].replace(',', '\',\'')
-    bsnorm = req_data['request_bs_norm'].replace(',', '\',\'')
-    veh_mod = req_data['request_vehicle_model'].replace(',', '\',\'')
-    eng_ser = req_data['request_engine_series'].replace(',', '\',\'')
-    verti = req_data['request_vertical'].replace(',', '\',\'')
-    fert_cd = req_data['request_fert_code'].replace(',', '\',\'')
-    tele_nm = req_data['request_telematics_name'].replace(',', '\',\'')
-    mfg_yr = req_data['request_manufacture_year'].replace(',', '\',\'')
-    mfg_mn = req_data['request_manufacture_month'].replace(',', '\',\'')
+
+    tag_dict = {k: '\',\''.join(str(x) for x in v) for k, v in tag_dict.items()}
+    fuel_type = tag_dict['fuelType']
+    bsnorm = tag_dict['bsNorm']
+    veh_mod = tag_dict['vehicleModel']
+    eng_ser = tag_dict['engineSeries']
+    verti = tag_dict['vertical']
+    fert_cd = tag_dict['fertNo']
+    tele_nm = tag_dict['telematicsName']
+    mfg_btch = '\',\''.join(x for x in [y[:7] for y in tag_dict['mfgBatch'].split('\',\'')])
 
     base = f"select CASE when upper(telematics_name) = 'VOLVO' then vin else device_id end as device_id from {table} where "
 
@@ -335,7 +335,7 @@ def vin_selector(req_data):
     query += f" and engine_series in ('{eng_ser}')" if eng_ser != '' else ''
     query += f" and vertical in ('{verti}')" if verti != '' else ''
     query += f" and fert_no in ('{fert_cd}')" if fert_cd != '' else ''
-    query += f" and year(mfg_date) in ('{mfg_yr}') and month(mfg_date) in ('{mfg_mn}')" if mfg_yr != '' else ''
+    query += f" and DATE_FORMAT(mfg_date, '%%Y-%%m') in ('{mfg_btch}')" if mfg_btch != '' else ''
     query += f" and telematics_name in ('{tele_nm}')" if tele_nm != '' else ''
 
     # Creating query string for selecting random
@@ -349,11 +349,13 @@ def vin_selector(req_data):
 
     # Creating list of vins from the returned output
     if not sql_df.empty:
+        logging.info("Vehicles found for the tag filter criteria")
         vin_str = ''
         for vin in sql_df['device_id']:
             vin_str = vin_str + ',' + vin
         return vin_str[1:]
     else:
+        logging.warning("No Vehicle found matching the tag filter criteria.")
         job_failed_update(row_id, 'No Vehicle selected after applying the tag filters')
         return 0
 

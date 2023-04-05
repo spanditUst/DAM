@@ -1,3 +1,4 @@
+"""This is the main script for processing scheduled download request."""
 import os
 import json
 import logging
@@ -70,15 +71,7 @@ def schedule_process(row):
 def main():
     query = f"SELECT m.id, " \
             f"s1.name as frequency, " \
-            f"m.schedule_telematics_name as request_telematics_name, " \
-            f"m.schedule_fert_code as request_fert_code, " \
-            f"m.schedule_fuel_type as request_fuel_type, " \
-            f"m.schedule_bs_norm as request_bs_norm, " \
-            f"m.schedule_vehicle_model as request_vehicle_model, " \
-            f"m.schedule_engine_series as request_engine_series, " \
-            f"m.schedule_vertical as request_vertical, " \
-            f"m.schedule_manufacture_year as request_manufacture_year, " \
-            f"m.schedule_manufacture_month as request_manufacture_month, " \
+            f"m.schedule_attribute_list as request_attribute_list, " \
             f"m.schedule_filter_condition as request_filter_condition, " \
             f"m.schedule_max_vin_count as request_max_vin_count " \
             f"FROM {table1} m left outer join {table2} s1 " \

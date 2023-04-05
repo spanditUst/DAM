@@ -57,10 +57,14 @@
   "COS_API_KEY_ID_poc": "hFXVgxKQFdJf_URlSU9JuZU8IEOYjMDaHWSZpWV38I9E",
   "COS_INSTANCE_CRN_poc": "crn:v1:bluemix:public:cloud-object-storage:global:a/b6227f9ee9644bcea86215ea5ee87041:61e1b4df-d505-451c-a8b9-d12cab7a4457:: ",
 
-  "COS_BUCKET": "wabco-can",
+  "WABCO_CAN_BUCKET": "wabco-can",
+  "WABCO_ALERT_BUCKET": "wabco-alt",
+  "VOLVO_FUEL_BUCKET": "volvo-fuel",
+  "VOLVO_ALERT_BUCKET": "volvo-alt",
   "COS_ENDPOINT": "https://s3.jp-tok.cloud-object-storage.appdomain.cloud",
   "COS_API_KEY_ID": "oMbTt70hmLbVx4Td55x-x78rxAZIrE5lL1F4MY9wRfho",
   "COS_INSTANCE_CRN": "crn:v1:bluemix:public:cloud-object-storage:global:a/b6227f9ee9644bcea86215ea5ee87041:3390ddf6-84bc-4df9-95b7-e35c78fdcf5d::",
+  "COS_PACKET": "fuel,behaviour,wcanbs46,wcanbs6,wcan3bs6",
 
   "log_filepath" : "../log/",
   "modified_by" : "DAM-Python"
