@@ -3,8 +3,9 @@ import logging
 import json
 import sys
 from pathlib import Path
+import pandas as pd
 import dam_common_utils as dcu
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from dam_object_store import data_downloader as cos_dd
 from dam_cloudant import data_downloader as cld_dd
 from dam_processed_data import data_downloader as mysql_dd
@@ -32,8 +33,8 @@ def vin_process(req_data):
     # Common data retrieval
     d_flag = 0
     row_id = str(req_data['id'])
-    field_id_plus, value_filter_str = dcu.process_value_filter(req_data['request_filter_condition'],
-                                                               req_data['field_tag_id'])
+    field_str = ','.join([str(x['id']) for x in json.loads(req_data["request_attribute_list"])["packetParameterList"]])
+    field_id_plus, value_filter_str = dcu.process_value_filter(req_data['request_filter_condition'], field_str)
 
     # Updating the database table for In progress status
     query = f"UPDATE {table1} SET request_status_id = (select id from {table2} where UPPER(name) = 'IN PROGRESS')," \
@@ -93,7 +94,8 @@ def vin_process(req_data):
 
     if d_flag:
         logging.info("All the packets were downloaded")
-        query = f"UPDATE {table1} SET request_status_id = (select id from {table2} where UPPER(name) = 'COMPLETED' and is_visible = 1), " \
+        query = f"UPDATE {table1} SET request_status_id = (select id from {table2} " \
+                f"where UPPER(name) = 'COMPLETED' and is_visible = 1), " \
                 f"request_remarks = 'Data Download Request completed successfully', " \
                 f"request_end_message = 'Success', " \
                 f"is_request_processed = 1, " \
@@ -202,17 +204,77 @@ def download_iteration_storewise(vin_list, field_dict, row_id, from_time, to_tim
 
         # Calling methods based on the storage
         if store == 'COS':
+            t1 = datetime.now()
             Path(f"{row_id}/{store}/{packet}").mkdir(parents=True, exist_ok=True)
             dwnld_status = cos_dd(vin_list, packet, int(from_time), int(to_time), final_field_list, row_id, fname,
                                   store)
+            t2 = datetime.now()
+            t3 = (t2 - t1).total_seconds() / 60.0
+            update_statistics(from_time, to_time, 'COS', row_id, packet, vin_list, t3, config)
+
         elif store == 'CLOUDANT':
+            t1 = datetime.now()
             Path(f"{row_id}/{store}/{packet}").mkdir(parents=True, exist_ok=True)
             dwnld_status = cld_dd(vin_list, packet, int(from_time), int(to_time), final_field_list, row_id, fname,
                                   store)
+            t2 = datetime.now()
+            t3 = (t2 - t1).total_seconds() / 60.0
+            update_statistics(from_time, to_time, 'CLOUDANT', row_id, packet, vin_list, t3, config)
         elif store == 'PROCESSED':
+            t1 = datetime.now()
             dwnld_status = mysql_dd(vin_list, packet, from_time, to_time, final_field_list, row_id, fname, store)
+            t2 = datetime.now()
+            t3 = (t2 - t1).total_seconds() / 60.0
+            update_statistics(from_time, to_time, 'PROCESSED', row_id, packet, vin_list, t3, config)
         else:
             dwnld_status = 0
 
     return dwnld_status
 
+
+def update_statistics(from_time: str, to_time: str, source_name: str, row_id: int, packet: str, vin_list: list, t3: float, config: dict) -> None:
+    """
+    Update statistics for a data access request file.
+
+    Parameters:
+        from_time (str): Start time of the data access request in the format specified by `config['timestamp_fmt']`.
+        to_time (str): End time of the data access request in the format specified by `config['timestamp_fmt']`.
+        source_name (str): Name of the data source for the request.
+        row_id (int): ID of the data access request.
+        packet (str): Name of the packet associated with the data access request.
+        vin_list (list): List of unique VINs accessed in the data access request.
+        t3 (float): Time taken to prepare the request file.
+        config (dict): Dictionary containing configuration parameters for the statistics update process.
+
+    Returns:
+        None
+    """
+    # Convert from_time and to_time to datetime objects
+    time_fmt = config['timestamp_fmt']
+    start_time = datetime.strptime(from_time, time_fmt)
+    end_time = datetime.strptime(to_time, time_fmt)
+
+    # Calculate number of days between start_time and end_time
+    delta = end_time - start_time
+    days = delta.days
+
+    # Create a new DataFrame to store the statistics
+    stats_df = pd.DataFrame({
+        'data_access_request_id': [row_id],
+        'source_container_name': [packet],
+        'source_name': [source_name],
+        'unique_vin_count': [len(set(vin_list))],
+        'day_count': [days],
+        'time_taken': [t3],
+        'prepared_date': [date.today()],
+        'created_by': 'DAM/Python',
+        'created_time': datetime.now()
+    })
+
+    # Insert the statistics into the database
+    try:
+        conn = dcu.mysql_connection_uptime()
+        stats_df.to_sql(name='request_file_prepare_statistics', con=conn, if_exists='append', index=False)
+        conn.close()
+    except ConnectionError as e:
+        logging.critical("Database Connection Error!", str(e))

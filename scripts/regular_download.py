@@ -1,6 +1,8 @@
+"""This is the main script for processing regular download request."""
 import os
 import json
 import logging
+import sys
 from datetime import datetime
 import dam_download_orchestrator as ddo
 import dam_common_utils as dcu
@@ -20,32 +22,20 @@ def main():
                     f"m.request_from_time, " \
                     f"m.request_to_time, " \
                     f"m.request_vin_list, " \
-                    f"m.request_telematics_name, " \
-                    f"m.request_fert_code, " \
-                    f"m.request_fuel_type, " \
-                    f"m.request_bs_norm, " \
-                    f"m.request_vehicle_model, " \
-                    f"m.request_engine_series, " \
-                    f"m.request_vertical, " \
-                    f"m.request_manufacture_year, " \
-                    f"m.request_manufacture_month, " \
+                    f"request_attribute_list, " \
                     f"m.request_filter_condition, " \
                     f"m.request_max_vin_count, " \
-                    f"m.request_number_of_months, " \
-                    f"s2.field_ids as field_tag_id " \
+                    f"m.request_number_of_months " \
                     f"from {table1} m " \
                     f"inner join {table2} s1 " \
                     f"on m.request_status_id = s1.id " \
                     f"and UPPER(s1.name) = 'REQUESTED' " \
                     f"and s1.is_visible = 1 " \
-                    f"left outer join (select data_access_request_id, " \
-                    f"group_concat(field_tag_id separator ',') as field_ids " \
-                    f"from {field_table} group by data_access_request_id) s2 " \
-                    f"on m.id = s2.data_access_request_id " \
                     f"where m.is_active = 1 " \
                     f"and m.is_deleted = 0 " \
                     f"and m.is_request_processed = 0;"
 
+    logging.info("Checking for new request!")
     sql_new_req_df = dcu.execute_query(dcu.mysql_connection_uptime(), query_new_req, 'return')
 
     if not sql_new_req_df.empty:
@@ -54,6 +44,8 @@ def main():
             logging.info("New request(s) received.")
             for ind, row in fin_df.iterrows():
                 ddo.vin_process(row)
+    else:
+        logging.info("No new request found!")
 
     # Deletion of the expired request
     query_delete = f"select id from {table1} where processed_file_expiry_datetime < '{datetime.now()}' " \
@@ -92,6 +84,3 @@ if __name__ == "__main__":
 
     logging.info("\n\n\nStarting the Data Access Module Program")
     main()
-
-    # a = 'sjhdj,adshfgvj'
-    # print(a.replace(',', '\',\''))
