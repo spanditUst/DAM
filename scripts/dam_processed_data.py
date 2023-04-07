@@ -18,8 +18,8 @@ def data_downloader(vehicle_list, db_txt, sta_dt, end_dt, field_list, row_id, fi
     f_list = str(field_list).replace("'", ""). replace('[', '').replace(']', '')
     s_dt = "'" + str(sta_dt) + "'"
     e_dt = "'" + str(end_dt) + "'"
-    query = f"select {f_list} from {db_txt} where device_id in {v_list} and event_datetime > {s_dt} and " \
-            f"event_datetime < {e_dt};"
+    query = f"select {f_list} from {db_txt} where device_id in {v_list} or vin in {v_list} " \
+            f"and event_datetime > {s_dt} and event_datetime < {e_dt};"
 
     sql_df = dcu.execute_query(dcu.mysql_connection_sa(), query, 'return')
     filename = f"{row_id}/{store}/{db_txt}_tbl_{filename}.csv"
