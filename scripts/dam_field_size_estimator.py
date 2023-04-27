@@ -3,7 +3,7 @@ import json
 import os
 import numpy as np
 import pandas as pd
-from tbd.dam_orchestrator import mysql_connection as sql
+from dam_orchestrator import mysql_connection as sql
 from dam_cloudant import data_downloader as dd
 
 
@@ -57,11 +57,11 @@ def main():
     Main method to orchestrate all the functionality
     :return: status
     """
-    with open('../../tbd/configuration.json', encoding='utf-8') as config_file:
+    with open('../../configuration.json', encoding='utf-8') as config_file:
         config = json.load(config_file)
     config_file.close()
 
-    with open('../../tbd/field_name.json', encoding='utf-8') as field_file:
+    with open('../../field_name.json', encoding='utf-8') as field_file:
         field_config = json.load(field_file)
     field_file.close()
 

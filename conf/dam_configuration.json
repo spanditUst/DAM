@@ -13,12 +13,19 @@
   "mysql_username_sa" : "ustusr",
   "mysql_password_sa" : "eicher@123",
   "mysql_ip_address_sa" : "10.162.123.32",
+  "sa_database_name" : "vecvuat",
+
   "mysql_username_uptime" : "ustusr",
   "mysql_password_uptime" : "eicher@123",
   "mysql_ip_address_uptime" : "10.162.56.74",
-  "mysql_port" : "3306",
   "uptime_database_name" : "uptime_dev",
-  "sa_database_name" : "vecvuat",
+
+  "mysql_username_protech" : "csreaduser",
+  "mysql_password_protech" : "csread@2020",
+  "mysql_ip_address_protech" : "10.162.123.12",
+  "protech_database_name" : "protech",
+
+  "mysql_port" : "3306",
   "field_lkp_table" : "field_tag",
   "common_column" : "vin:Chassis_no,eventDateTime:eventDateTime",
   "expiry_duration" : 15,
@@ -29,6 +36,8 @@
   "sch_lkp_tbl_status": "lkp_request_status",
   "lkp_field_tag" : "map_data_access_request_field_tag",
   "request_tag_view" : "vwVINTagSpec",
+  "sql_dtc_wabco_tbl" : "wabcofaultitems",
+  "sql_dtc_volvo_tbl" : "volvofaultitems",
 
   "bootstrap_servers" : "kafka-2.mh-kqlwvrlcrnwrslgvkwpf-4c201a12d7add7c99d2b22e361c6f175-0001.che01.containers.appdomain.cloud:9093,kafka-1.mh-kqlwvrlcrnwrslgvkwpf-4c201a12d7add7c99d2b22e361c6f175-0001.che01.containers.appdomain.cloud:9093,kafka-0.mh-kqlwvrlcrnwrslgvkwpf-4c201a12d7add7c99d2b22e361c6f175-0001.che01.containers.appdomain.cloud:9093",
   "three_day_topic" : "SP_15minAgg-DEV5",
@@ -49,6 +58,9 @@
   "mysql_time_fmt": "%Y-%m-%d %H:%M:%S",
   "time_col": "eventDateTime",
   "cloudant_retention_days": 90,
+  "dtc_wabco_retention_date": "20230501000000",
+  "dtc_volvo_retention_date": "20230501000000",
+  "dtc_cuttoff_time": "20220901000000",
 
   "ssd_path": "SSD/",
 
@@ -65,6 +77,8 @@
   "COS_API_KEY_ID": "oMbTt70hmLbVx4Td55x-x78rxAZIrE5lL1F4MY9wRfho",
   "COS_INSTANCE_CRN": "crn:v1:bluemix:public:cloud-object-storage:global:a/b6227f9ee9644bcea86215ea5ee87041:3390ddf6-84bc-4df9-95b7-e35c78fdcf5d::",
   "COS_PACKET": "fuel,behaviour,wcanbs46,wcanbs6,wcan3bs6",
+  "TOKEN": "eyJraWQiOiIyMDIzMDMxMjA4MzAiLCJhbGciOiJSUzI1NiJ9.eyJpYW1faWQiOiJpYW0tU2VydmljZUlkLWRiYzE0MGZmLTJiMTMtNDZkNy1iNTQ2LTUwMThmNTFkNjBlMyIsImlkIjoiaWFtLVNlcnZpY2VJZC1kYmMxNDBmZi0yYjEzLTQ2ZDctYjU0Ni01MDE4ZjUxZDYwZTMiLCJyZWFsbWlkIjoiaWFtIiwianRpIjoiODk4NDlhMjEtY2VlMi00NWE0LWFmMjgtNDFjNTZiNDZhMjJkIiwiaWRlbnRpZmllciI6IlNlcnZpY2VJZC1kYmMxNDBmZi0yYjEzLTQ2ZDctYjU0Ni01MDE4ZjUxZDYwZTMiLCJuYW1lIjoid2FiY28tY2FuIiwic3ViIjoiU2VydmljZUlkLWRiYzE0MGZmLTJiMTMtNDZkNy1iNTQ2LTUwMThmNTFkNjBlMyIsInN1Yl90eXBlIjoiU2VydmljZUlkIiwiYXV0aG4iOnsic3ViIjoiU2VydmljZUlkLWRiYzE0MGZmLTJiMTMtNDZkNy1iNTQ2LTUwMThmNTFkNjBlMyIsImlhbV9pZCI6ImlhbS1TZXJ2aWNlSWQtZGJjMTQwZmYtMmIxMy00NmQ3LWI1NDYtNTAxOGY1MWQ2MGUzIiwic3ViX3R5cGUiOiJTZXJ2aWNlSWQiLCJuYW1lIjoid2FiY28tY2FuIn0sImFjY291bnQiOnsidmFsaWQiOnRydWUsImJzcyI6ImI2MjI3ZjllZTk2NDRiY2VhODYyMTVlYTVlZTg3MDQxIiwiZnJvemVuIjp0cnVlfSwiaWF0IjoxNjgxMTk2MTIxLCJleHAiOjE2ODExOTk3MjEsImlzcyI6Imh0dHBzOi8vaWFtLmNsb3VkLmlibS5jb20vb2lkYy90b2tlbiIsImdyYW50X3R5cGUiOiJ1cm46aWJtOnBhcmFtczpvYXV0aDpncmFudC10eXBlOmFwaWtleSIsInNjb3BlIjoiaWJtIG9wZW5pZCIsImNsaWVudF9pZCI6ImRlZmF1bHQiLCJhY3IiOjEsImFtciI6WyJwd2QiXX0.vnETh13e1PvRUP86SpAdsZoYd-51MNuAmBRDv3AXl91A3b5SrPDoqLQEaZBClPWV5burrgm7F0INPTzXaytoljMOf04p42ijPgt4L7Y-hqXeFooSCw2RvjK3pxia1wy7ex5C1xSjBtvQLJgVgZp4DYq0sZkpxmYI5WH5EAMuKoFZZNdqYXgfyzFG4Gh4m4MzFykunaJGIJI0QuPVN8xs7JBumjovuYYPWxpn9jJgiT0AfcudtfyG_08IshZeYtl3ScNBGVOKajzyu0Yq6DzvKNQWgUnyr4_3uBpuAurc8M--7QxXGU7mp8GerkpaN40mfKfN5HmcfD8JBLp9j31SdQ",
+  "url": "https://s3.jp-tok.cloud-object-storage.appdomain.cloud/wabco-can/edt=20230101/pkt=CANBS4/8_20230220_2156138.parquet -H \"Authorization: Bearer eyJraWQiOiIyMDIzMDQxMTA4MzEiLCJhbGciOiJSUzI1NiJ9.eyJpYW1faWQiOiJpYW0tU2VydmljZUlkLWRiYzE0MGZmLTJiMTMtNDZkNy1iNTQ2LTUwMThmNTFkNjBlMyIsImlkIjoiaWFtLVNlcnZpY2VJZC1kYmMxNDBmZi0yYjEzLTQ2ZDctYjU0Ni01MDE4ZjUxZDYwZTMiLCJyZWFsbWlkIjoiaWFtIiwianRpIjoiM2JjM2E4NWEtOTMzYS00Mjg1LTlkNzMtNmY2MTg5NjQ0M2VkIiwiaWRlbnRpZmllciI6IlNlcnZpY2VJZC1kYmMxNDBmZi0yYjEzLTQ2ZDctYjU0Ni01MDE4ZjUxZDYwZTMiLCJuYW1lIjoid2FiY28tY2FuIiwic3ViIjoiU2VydmljZUlkLWRiYzE0MGZmLTJiMTMtNDZkNy1iNTQ2LTUwMThmNTFkNjBlMyIsInN1Yl90eXBlIjoiU2VydmljZUlkIiwiYXV0aG4iOnsic3ViIjoiU2VydmljZUlkLWRiYzE0MGZmLTJiMTMtNDZkNy1iNTQ2LTUwMThmNTFkNjBlMyIsImlhbV9pZCI6ImlhbS1TZXJ2aWNlSWQtZGJjMTQwZmYtMmIxMy00NmQ3LWI1NDYtNTAxOGY1MWQ2MGUzIiwic3ViX3R5cGUiOiJTZXJ2aWNlSWQiLCJuYW1lIjoid2FiY28tY2FuIn0sImFjY291bnQiOnsidmFsaWQiOnRydWUsImJzcyI6ImI2MjI3ZjllZTk2NDRiY2VhODYyMTVlYTVlZTg3MDQxIiwiZnJvemVuIjp0cnVlfSwiaWF0IjoxNjgxMzgxNzIxLCJleHAiOjE2ODEzODUzMjEsImlzcyI6Imh0dHBzOi8vaWFtLmNsb3VkLmlibS5jb20vb2lkYy90b2tlbiIsImdyYW50X3R5cGUiOiJ1cm46aWJtOnBhcmFtczpvYXV0aDpncmFudC10eXBlOmFwaWtleSIsInNjb3BlIjoiaWJtIG9wZW5pZCIsImNsaWVudF9pZCI6ImRlZmF1bHQiLCJhY3IiOjEsImFtciI6WyJwd2QiXX0.lMY8s5HrEoIddvVYqOamZapQn66CEg_8hfF4y2UE6dcyM_IohljMUBdk5nuHZR0KtnnOuz_BK2e9cojdm_y1nYSv_mkdSOqzCU7Oc5Oivvef9C6zkWvgusA8dsF1GOircfIjPnRi6fWJcI5qKfuouQmfjE-FX-1tL6xbFy4s1rkK0Zc92VXS4R9tePxK5gTyZ3l2H1TyZPm7KavYF0jyiPMVblmftq6OjT661OmxulKYFthajRmBD_iopyIY0-mmbE7oybT7eO4XZDzIkEc6x0K62Pg-SV8B8aAPA0Z-Z8a9OUV2tRxJM724LISYMPC9HrZLLoaLYcNdcy4KmoUniQ\"",
 
   "log_filepath" : "../log/",
   "modified_by" : "DAM-Python"
