@@ -35,9 +35,9 @@ def main():
                     f"and m.is_deleted = 0 " \
                     f"and m.is_request_processed = 0;"
 
-    logging.info("Checking for new request!")
     sql_new_req_df = dcu.execute_query(dcu.mysql_connection_uptime(), query_new_req, 'return')
 
+    logging.info("Checking for new request!")
     if not sql_new_req_df.empty:
         fin_df = sql_new_req_df.fillna(value='')
         if not fin_df['id'][0] == '':
@@ -58,10 +58,11 @@ def main():
         for ind, row in sql_del_df.iterrows():
             logging.info(f"Deleting the expired request with id: {row['id']}")
             dcu.clean_ssd_data(row['id'])
-            query_update = f"UPDATE {table1} SET request_remarks = 'Download Expired! Deleted.', " \
+            query_update = f"UPDATE {table1} SET " \
                            f"modified_by = '{mod_by}', " \
                            f"modified_time = '{datetime.now()}' " \
                            f"where id = '{row['id']}'"
+            # f"request_remarks = 'Download Expired! Deleted.', " \
             dcu.execute_query(dcu.mysql_connection_uptime(), query_update, 'no_return')
 
     else:
@@ -82,5 +83,6 @@ if __name__ == "__main__":
                         format="%(asctime)s - %(levelname)s - %(message)s",
                         level=logging.INFO)
 
-    logging.info("\n\n\nStarting the Data Access Module Program")
+    logging.info("\n\nStarting the Data Access Module Program\n")
     main()
+    logging.info("\n\nStopping the Data Access Module Program\n")

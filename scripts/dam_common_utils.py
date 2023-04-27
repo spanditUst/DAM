@@ -66,6 +66,22 @@ def mysql_connection_uptime():
     return conn_str
 
 
+def mysql_connection_protech():
+    username = config["mysql_username_protech"]
+    password = config["mysql_password_protech"]
+    ip_address = config["mysql_ip_address_protech"]
+    port = config["mysql_port"]
+    database_name = config["protech_database_name"]
+    connect_args = {'ssl': {'fake_flag_to_enable_tls': True}}
+    db_connection_str = ("mysql+pymysql://" + username + ":" + "%s" + "@"
+                         + ip_address + ':' + str(port) + "/" + database_name + "")
+    engine = db_connection_str % quote(password)
+    engine = db.create_engine(engine, connect_args=connect_args)
+    conn_str = engine.connect()
+
+    return conn_str
+
+
 def clean_raw_data(row_id):
     """
     This method removes all the downloaded raw files
@@ -89,10 +105,10 @@ def clean_ssd_data(row_id):
         ssd_path = config['ssd_path'] + f"{row_id}/"
         shutil.rmtree(ssd_path)
         query = f"UPDATE {table1} " \
-                f"SET request_remarks = 'Data Expired! Files deleted from the location', " \
-                f"modified_by = '{mod_by}', " \
+                f"SET modified_by = '{mod_by}', " \
                 f"modified_time = '{datetime.now()}' " \
                 f"where id = {row_id};"
+        # request_remarks = 'Data Expired! Files deleted from the location'
         execute_query(mysql_connection_uptime(), query, 'no_return')
     except OSError as e:
         logging.warning("Removal of the SSD data failed!: %s", e)
@@ -131,13 +147,14 @@ def prep_fields(field, pac, store):
     if store == 'PROCESSED':
         f_list = list(set(['chassis_number', 'event_datetime'] + field.tolist()))
     else:
-        volvo_db_list = config["cloudant_volvo_fuel_db"], config["cloudant_volvo_alert_db"]
-        if store == 'COS':
-            f_list = field.tolist if pac in [volvo_db_list] else list(set(['deviceId', 'utc'] + field.tolist()))
-        else:
-            f_list = field.tolist if pac in [volvo_db_list] else list(set(['Device ID', 'UTC'] + field.tolist()))
+        volvo_db_list = ['fuel', 'behaviour']
 
-    return f_list
+        if store == 'COS':
+            f_list = ['vin', 'eventDateTime'] if pac in volvo_db_list else ['deviceId', 'utc']
+        else:
+            f_list = ['vin', 'eventDateTime'] if pac in volvo_db_list else ['Device ID', 'UTC']
+
+    return list(set(f_list + field.tolist()))
 
 
 def field_name_retrieval(field_id_list):
@@ -152,7 +169,28 @@ def field_name_retrieval(field_id_list):
             f"field_source_type_name as src_name, " \
             f"field_source_container_name as src_type, " \
             f"historical_source_column_name as cos_name " \
-            f"from {table} where id in ({field_id_list})"
+            f"from {table} where id in ({field_id_list}) " \
+            f"and field_source_type_name != 'dtc'"
+    sql_df = execute_query(mysql_connection_uptime(), query, 'return')
+
+    return sql_df
+
+
+def field_name_retrieval_dtc(field_id_list):
+    """
+    This function returns the field details based on the ids provided
+    :param field_id_list: List if ids of the field selected by user
+    :param config: The configuration file.
+    :return: Dataframe from field lookup table
+    """
+    table = config["field_lkp_table"]
+    query = f"select field_name as curr_fld_name, " \
+            f"field_source_type_name as src_name, " \
+            f"field_source_container_name as curr_src_name, " \
+            f"historical_source_name as hist_src_name, " \
+            f"historical_source_column_name as hist_fld_name " \
+            f"from {table} where id in ({field_id_list}) " \
+            f"and field_source_type_name = 'dtc'"
     sql_df = execute_query(mysql_connection_uptime(), query, 'return')
 
     return sql_df
@@ -177,11 +215,11 @@ def check_cancellation_request(row_id):
             logging.info("The download is cancelled by the user! Proceeding for cleaning")
             query = f"UPDATE {table1} " \
                     f"SET request_status_id = (select id from {table2} where UPPER(name) = 'CANCELLED'), " \
-                    f"request_remarks = 'Data Download Request Cancelled by User', " \
                     f"request_end_message = 'Cancelled', " \
                     f"modified_by = '{mod_by}', " \
                     f"modified_time = '{datetime.now()}' " \
                     f"where id = {row_id};"
+            # f"request_remarks = 'Data Download Request Cancelled by User',
             execute_query(mysql_connection_uptime(), query, 'no_return')
             clean_raw_data(row_id)
             sys.exit("Gracefully Exiting the Download Process!")
@@ -193,25 +231,34 @@ def check_cancellation_request(row_id):
 def job_failed_update(row_id, msg):
     query = f"UPDATE {table1} " \
             f"SET request_status_id = (select id from {table2} where UPPER(name) = 'FAILED'), " \
-            f"request_remarks = '{msg}', " \
             f"request_end_message = 'Error', " \
             f"modified_by = '{mod_by}', " \
             f"modified_time = '{datetime.now()}' " \
             f"where id = {row_id};"
+    # f"request_remarks = '{msg}', " \
     execute_query(mysql_connection_uptime(), query, 'no_return')
     logging.critical("Job Failed! Comment updated")
     sys.exit("Exiting Process!")
 
 
 def store_concat(row_id, packet, cloudant_fields, cos_fields, prcs_flag):
+    """
+    This method will merge the data from multiple files of different vehicle and
+    same packet to one file
+    :param row_id: request id
+    :param packet: Packet name
+    :param cloudant_fields: requested field names in Cloudant format
+    :param cos_fields: requested field names in COS format
+    :param prcs_flag: flag for data download from mysql tables
+    :return: Return the merged dataframe
+    """
     ret_df = pd.DataFrame()
     logging.info("Starting the concatenation of %s", packet)
     if not prcs_flag:
         store = ''
 
         try:
-            name_replace_dict = {cloudant_fields.tolist()[i]: cos_fields.tolist()[i] for i in
-                                 range(len(cloudant_fields))}
+            name_replace_dict = {cloudant_fields.tolist()[i]: cos_fields.tolist()[i] for i in range(len(cloudant_fields))}
             cos_file_list = os.listdir(f'{row_id}/COS/{packet}/')
             if cos_file_list:
                 cos_combined_df = pd.concat([pd.read_csv(f"{row_id}/COS/{packet}/{f}") for f in cos_file_list], axis=0)
@@ -251,11 +298,11 @@ def merge_data(row_id):
     """
     file_list = os.listdir(f'{row_id}/')
     wabco_list = [f for f in file_list if 'wcan' in f and f.endswith('.csv')]
-    volvo_list = [f for f in file_list if 'fuel' in f or 'behaviour' in f]
+    volvo_list = [f for f in file_list if ('fuel' in f and f.endswith('.csv')) or ('behaviour' in f and f.endswith('.csv'))]
     # prcsd_list = [f for f in file_list if 'tbl' in f]
 
     logging.info('Merging Data for Volvo')
-    merged_v = merge_data_ext(row_id, volvo_list, col=['Chassis_number', 'eventDateTime'])
+    merged_v = merge_data_ext(row_id, volvo_list, col=['vin', 'eventDateTime'])
     logging.info('Merging Data for Wabco')
     merged_w = merge_data_ext(row_id, wabco_list, col=['Device ID', 'UTC'])
     # logging.info('Merging Processed Data')
@@ -283,6 +330,7 @@ def merge_data_ext(row_id, file_list, col):
     :param col: Joining column names
     :return: merged dataframe
     """
+
     if len(file_list) == 1:
         logging.info("Single File! Returning data.")
         return_df = pd.read_csv(f'{row_id}/{file_list[0]}')
@@ -315,6 +363,7 @@ def vin_selector(req_data):
     tag_dict = json.loads(req_data['request_attribute_list'])
     table = config['request_tag_view']
 
+    tag_dict = {k: [""] if v is None else v for k, v in tag_dict.items()}
     tag_dict = {k: '\',\''.join(str(x) for x in v) for k, v in tag_dict.items()}
     fuel_type = tag_dict['fuelType']
     bsnorm = tag_dict['bsNorm']
@@ -339,11 +388,10 @@ def vin_selector(req_data):
     query += f" and telematics_name in ('{tele_nm}')" if tele_nm != '' else ''
 
     # Creating query string for selecting random
-    query += f" ORDER BY RAND() LIMIT {req_data['request_max_vin_count']}"
+    query += f" ORDER BY RAND() LIMIT {int(req_data['request_max_vin_count'])}"
 
     # Concatenating strings to build final query
     query = base + query[5:]
-    logging.info("Tag filter query: %s", query)
 
     sql_df = execute_query(mysql_connection_uptime(), query, 'return')
 
@@ -369,13 +417,13 @@ def process_value_filter(value_filters, field_id):
     """
     field_id_str = field_id
     val_filter = ''
-    if not value_filters:
+    if value_filters != '':
         filter_dict = json.loads(value_filters)
         val_filter = ''
         for d in filter_dict:
-            field_id_str = field_id_str + ',' + d['id']
+            field_id_str = field_id_str + ',' + str(d['id'])
             col = d['name'].split('-')[1]
-            val_filter = val_filter + f"{col} {d['logicaloperator']} {d['filter']}"
+            val_filter = val_filter + f"{col} {d['logicalOperator']} {d['filter']}"
             val_filter = val_filter + ' & '
         k = val_filter.rfind(" & ")
         val_filter = val_filter[:k]
@@ -392,12 +440,18 @@ def apply_value_filter(row_id, value_filter_str):
     """
     file_list = [f for f in os.listdir(f'{row_id}/') if f.endswith('.csv')]
     for file in file_list:
-        df = pd.read_csv(f"{row_id}/{file}")
-        try:
-            filtered_df = df.query(value_filter_str)
-            filtered_df.to_csv(f"{row_id}/" + file.replace('.csv', '_filtered.csv'))
-        except KeyError:
-            logging.info("Filters not applicable for the downloaded data.")
+        data_df = pd.read_csv(f"{row_id}/{file}")
+        if not value_filter_str == '':
+            logging.info("Applying filters on the downloaded data.")
+            try:
+                filtered_df = data_df.query(value_filter_str)
+                filtered_df.to_csv(f"{row_id}/" + file.replace('.csv', '_filtered.csv'))
+            except KeyError:
+                logging.info("Filters not applicable for the downloaded data.")
+        else:
+            logging.info("No Filter to be applied.")
+            print(file)
+            data_df.to_csv(f"{row_id}/" + file.replace('.csv', '_filtered.csv'))
 
 
 def ssd_operation(row_id):
@@ -427,6 +481,12 @@ def ssd_operation(row_id):
 
 
 def dtc_process2(df_data, fields):
+    """
+    This method process cloudant DTC data into required layout
+    :param df_data: cloudant dataframe
+    :param fields:
+    :return:
+    """
     for ind, rowe in df_data.iterrows():
         dtc_count = {fault['spn']: fault['occuranceCount'] for fault in rowe['faults']}
         for ky, vl in dtc_count.items():
@@ -440,6 +500,12 @@ def dtc_process2(df_data, fields):
 
 
 def convert_to_utc(date_str, time_str):
+    """
+    This Method convert the time string to epoch time from 01-01-2000
+    :param date_str: datetime string
+    :param time_str:
+    :return: epoch time for the input time
+    """
     edatetime_str = date_str[4:] + date_str[2:4] + date_str[:2] + time_str
     edatetime = datetime.strptime(edatetime_str, tm_fmt)
     epoch_time = datetime.strptime("20000101000000", tm_fmt)
