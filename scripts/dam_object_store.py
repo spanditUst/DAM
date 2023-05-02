@@ -1,10 +1,12 @@
-"""This script fetch data from cloudant"""
+"""This script fetch data from COS"""
 import os
 import glob
 import json
 import logging
 from pathlib import Path
 import pandas as pd
+import ibm_boto3
+from ibm_botocore.client import Config
 from datetime import datetime, timedelta
 from ibm_botocore import exceptions
 import dam_common_utils as dcu
@@ -20,6 +22,7 @@ wcanbs6 = config["cloudant_wabco_canbs6_db"]
 wcan3bs6 = config["cloudant_wabco_can3bs6_db"]
 dtc = config["cloudant_dtc_db"]
 
+
 def packet_name(db_txt):
     """
     This function decodes the packet name to match will COS specification
@@ -28,6 +31,8 @@ def packet_name(db_txt):
     """
     if fuel in db_txt:
         val = 'FUEL'
+    elif behaviour in db_txt:
+        val = 'BEHAVIOUR'
     elif wcanbs46 in db_txt:
         val = 'CANBS4'
     elif wcanbs6 in db_txt:
@@ -35,13 +40,24 @@ def packet_name(db_txt):
     elif wcan3bs6 in db_txt:
         val = 'CAN3BS6'
     else:
-        val = 'NA'
+        val = db_txt
 
     return val
 
 
-def keyname_decode(cos, bucket_name, key_list):
-    files = cos.Bucket(bucket_name).objects.all()
+def init_cos():
+    """
+    :return: COS connect string
+    """
+    cos_endpoint = config['COS_ENDPOINT']
+    cos_api = config['COS_API_KEY_ID']
+    cos_crn = config['COS_INSTANCE_CRN']
+    cos = ibm_boto3.resource("s3", ibm_api_key_id=cos_api, ibm_service_instance_id=cos_crn, config=Config(signature_version="oauth"), endpoint_url=cos_endpoint)
+    return cos
+
+
+def keyname_decode(bucket_name, key_list):
+    files = init_cos().Bucket(bucket_name).objects.all()
     return [a.key for k in key_list for a in files if k in a.key]
 
 
@@ -67,7 +83,7 @@ def filename_decode(vehicle_list, final_list):
     return [k + '/' + v for v in veh_last_dig for k in final_list]
 
 
-def dwnld_prcs_data(cos, final_list, bucket_name, sta_dt, end_dt, vehicle_list, field_list, db_txt, row_id, filename, store):
+def dwnld_prcs_data(final_list, bucket_name, sta_dt, end_dt, vehicle_list, field_list, db_txt, row_id, filename, store):
     """
     This method perform operation in the below sequence:
         download the relevant parquet files from COS.
@@ -84,6 +100,7 @@ def dwnld_prcs_data(cos, final_list, bucket_name, sta_dt, end_dt, vehicle_list, 
     :param field_list: List of fields selected by user
     :return: Status
     """
+    cos = init_cos()
     if final_list != '':
         for item in final_list:
             logging.info("%s will be downloaded.", item)
@@ -105,10 +122,15 @@ def dwnld_prcs_data(cos, final_list, bucket_name, sta_dt, end_dt, vehicle_list, 
             veh_list = vehicle_list.split(',')
 
             # fetching data for request vin, datetime and fields.
-            raw_df = raw_df[raw_df['deviceId'].isin(veh_list)]
-            raw_df['eventDateTime'] = pd.to_datetime(raw_df['utc'].astype('int64') + 946684800, unit='s')
-            df1 = raw_df[(raw_df['eventDateTime'] > sta_dt) & (raw_df['eventDateTime'] < end_dt)]
-            df1 = dcu.dtc_process2(df1, field_list)
+            if 'volvo' in bucket_name:
+                raw_df = raw_df[raw_df['vin'].isin(veh_list)]
+                df1 = raw_df[(raw_df['eventDateTime'] > int(sta_dt)) & (raw_df['eventDateTime'] < int(end_dt))]
+            else:
+                raw_df = raw_df[raw_df['deviceId'].isin(veh_list)]
+                raw_df['eventDateTime'] = pd.to_datetime(raw_df['utc'].astype('int64') + 946684800, unit='s')
+                df1 = raw_df[(raw_df['eventDateTime'] > sta_dt) & (raw_df['eventDateTime'] < end_dt)]
+            df1 = df1[field_list]
+            # df1 = dcu.dtc_process2(df1, field_list)
 
             # Downloading file in CSV format
             df1.to_csv(dwnld_file_name.replace('.parquet', '.csv').replace('parquet_folder', 'intercsv_folder'), index=False)
@@ -144,18 +166,32 @@ def data_downloader(vehicle_list, db_txt, sta_dt, end_dt, field_list, row_id, fi
     :param field_list: List of fields selected by user
     :return: Status
     """
-    cos = dcu.init_cos()
-    bucket_name = config['COS_BUCKET']
+
+    if db_txt in ['wcanbs46', 'wcanbs6', 'wcan3bs6']:
+        bucket = config['WABCO_CAN_BUCKET']
+    elif db_txt in ['alt_acc', 'alt_brak', 'alt_bs6']:
+        bucket = config['WABCO_ALT_BUCKET']
+    elif db_txt in ['fuel']:
+        bucket = config['VOLVO_FUEL_BUCKET']
+    elif db_txt in ['behaviour']:
+        bucket = config['VOLVO_ALERT_BUCKET']
+    else:
+        logging.warning("%s packet data load in progress for COS", db_txt)
+        return 0
+
     date_list = date_decode(str(sta_dt), str(end_dt))
     key_list = ['edt=' + d for d in date_list]
     pkt_name = 'pkt=' + packet_name(db_txt)
-    veh_list = [k1 + '/' + pkt_name for k1 in key_list]
-    veh_list = filename_decode(vehicle_list, veh_list)
-    veh_list = keyname_decode(cos, bucket_name, veh_list)
+    folder_list = [k1 + '/' + pkt_name for k1 in key_list]
+    if db_txt in ['wcanbs46', 'wcanbs6', 'wcan3bs6', 'alt_acc', 'alt_brak', 'alt_bs6']:
+        part_file_list = filename_decode(vehicle_list, folder_list)
+    else:
+        part_file_list = folder_list
+    file_list = keyname_decode(bucket, part_file_list)
 
     Path(f"{row_id}/{store}/parquet_folder").mkdir(parents=True, exist_ok=True)
     Path(f"{row_id}/{store}/intercsv_folder").mkdir(parents=True, exist_ok=True)
 
-    status = dwnld_prcs_data(cos, veh_list, bucket_name, str(sta_dt), str(end_dt), vehicle_list, field_list, db_txt, row_id, filename, store)
+    status = dwnld_prcs_data(file_list, bucket, str(sta_dt), str(end_dt), vehicle_list, field_list, db_txt, row_id, filename, store)
     return status
 

@@ -3,11 +3,13 @@ import logging
 import json
 import sys
 from pathlib import Path
+import pandas as pd
 import dam_common_utils as dcu
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from dam_object_store import data_downloader as cos_dd
 from dam_cloudant import data_downloader as cld_dd
 from dam_processed_data import data_downloader as mysql_dd
+from dam_dtc_data import data_downloader as dtc_dd
 
 with open('../conf/dam_configuration.json', encoding='utf-8') as config_file:
     config = json.load(config_file)
@@ -32,8 +34,9 @@ def vin_process(req_data):
     # Common data retrieval
     d_flag = 0
     row_id = str(req_data['id'])
-    field_id_plus, value_filter_str = dcu.process_value_filter(req_data['request_filter_condition'],
-                                                               req_data['field_tag_id'])
+    logging.info("Starting the Download process for request: %s", row_id)
+    field_str = ','.join([str(x['id']) for x in json.loads(req_data["request_attribute_list"])["packetParameterList"]])
+    field_id_plus, value_filter_str = dcu.process_value_filter(req_data['request_filter_condition'], field_str)
 
     # Updating the database table for In progress status
     query = f"UPDATE {table1} SET request_status_id = (select id from {table2} where UPPER(name) = 'IN PROGRESS')," \
@@ -43,11 +46,14 @@ def vin_process(req_data):
     dcu.execute_query(dcu.mysql_connection_uptime(), query, 'no_return')
 
     field_df = dcu.field_name_retrieval(field_id_plus)
+    field_df_dtc = dcu.field_name_retrieval_dtc(field_id_plus)
 
     # Preparing field name with unique packet name and list of all fields as value
     cloudant_field_dict = {k: g['fld_name'] for k, g in field_df.loc[field_df['src_name'] == 'raw'].groupby('src_type')}
     processed_field_dict = {k: g['fld_name'] for k, g in field_df.loc[field_df['src_name'] == 'processed'].groupby('src_type')}
     cos_field_dict = {k: g['cos_name'] for k, g in field_df.loc[field_df['src_name'] == 'raw'].groupby('src_type')}
+
+    # dtc_field_dict = {k: g['curr_fld_name'] for k, g in field_df_dtc.loc[field_df_dtc['src_name'] == 'dtc'].groupby('curr_src_name')}
 
     field_tuple = (cloudant_field_dict, cos_field_dict, processed_field_dict)
 
@@ -56,6 +62,9 @@ def vin_process(req_data):
         from_time = str(req_data['request_from_time']).replace('-', '').replace(':', '').replace(' ', '')
         to_time = str(req_data['request_to_time']).replace('-', '').replace(':', '').replace(' ', '')
         d_flag += download_data(row_id, field_tuple, dcu.vin_selector(req_data), from_time, to_time, 'common')
+
+        if not field_df_dtc.empty:
+            dtc_dd(row_id, field_df_dtc, dcu.vin_selector(req_data), from_time, to_time, 'common')
 
     else:
         logging.info("Vehicles are manually entered by user!")
@@ -69,6 +78,9 @@ def vin_process(req_data):
             to_time = datetime.strftime(tme, tmp_fmt)
             d_flag += download_data(row_id, field_tuple, vin_data['vin'], str(from_time), str(to_time), vin_data['vin'])
 
+            if not field_df_dtc.empty:
+                dtc_dd(row_id, field_df_dtc, dcu.vin_selector(req_data), str(from_time), str(to_time), vin_data['vin'])
+
     # Concatenating and Merging Files
     for packet in cloudant_field_dict.keys():
         Path(f"{row_id}/{packet}").mkdir(parents=True, exist_ok=True)
@@ -80,39 +92,54 @@ def vin_process(req_data):
         concat_df = dcu.store_concat(row_id, packet, '', '', prcs_flag=1)
         if not concat_df.empty:
             concat_df.to_csv(f'{row_id}/mysql_merged_data.csv', index=False)
-
+    
+    # Concatenating and Merging DTC data        
+    # for packet in dtc_field_dict.keys():
+    #     Path(f"{row_id}/{packet}").mkdir(parents=True, exist_ok=True)
+    #     concat_df = dcu.store_concat(row_id, packet, dtc_field_dict[packet], cos_field_dict[packet], prcs_flag=0)
+    #     if not concat_df.empty:
+    #         concat_df.to_csv(f'{row_id}/{packet}.csv', index=False)
+            
+    for packet in processed_field_dict.keys():
+        concat_df = dcu.store_concat(row_id, packet, '', '', prcs_flag=1)
+        if not concat_df.empty:
+            concat_df.to_csv(f'{row_id}/mysql_merged_data.csv', index=False)
+            
     try:
         dcu.merge_data(row_id)
     except OSError as e:
         logging.error("File system issue occured : %s", e)
         dcu.job_failed_update(row_id, str(e))
-    if not value_filter_str == '':
-        dcu.apply_value_filter(row_id, value_filter_str)
+
+    dcu.apply_value_filter(row_id, value_filter_str)
     dcu.ssd_operation(row_id)
     dcu.clean_raw_data(row_id)
 
     if d_flag:
         logging.info("All the packets were downloaded")
-        query = f"UPDATE {table1} SET request_status_id = (select id from {table2} where UPPER(name) = 'COMPLETED' and is_visible = 1), " \
-                f"request_remarks = 'Data Download Request completed successfully', " \
+        query = f"UPDATE {table1} SET request_status_id = (select id from {table2} " \
+                f"where UPPER(name) = 'COMPLETED' and is_visible = 1), " \
                 f"request_end_message = 'Success', " \
                 f"is_request_processed = 1, " \
                 f"modified_by = '{mod_by}', " \
                 f"modified_time = '{datetime.now()}', " \
                 f"request_processed_time = '{datetime.now()}' " \
                 f" where id = {row_id};"
+        # f"request_remarks = 'Data Download Request completed successfully', " \
         dcu.execute_query(dcu.mysql_connection_uptime(), query, 'no_return')
     else:
         logging.warning("All the packets were not downloaded")
         query = f"UPDATE {table1} SET request_status_id = (select id from {table2} where UPPER(name) = 'COMPLETED' and is_visible = 1), " \
-                f"request_remarks = 'Data for few packets not available for the time range', " \
                 f"request_end_message = 'Success', " \
                 f"is_request_processed = 1, " \
                 f"modified_by = '{mod_by}', " \
                 f"modified_time = '{datetime.now()}', " \
                 f"request_processed_time = '{datetime.now()}' " \
                 f"where id = {row_id};"
+        # f"request_remarks = 'Data for few packets not available for the time range', " \
         dcu.execute_query(dcu.mysql_connection_uptime(), query, 'no_return')
+    logging.info("Closing the Download process for request: %s", row_id)
+    logging.info("")
 
 
 def download_data(row_id, field_tuple, vin_list, from_time, to_time, filename):
@@ -202,17 +229,76 @@ def download_iteration_storewise(vin_list, field_dict, row_id, from_time, to_tim
 
         # Calling methods based on the storage
         if store == 'COS':
+            t1 = datetime.now()
             Path(f"{row_id}/{store}/{packet}").mkdir(parents=True, exist_ok=True)
             dwnld_status = cos_dd(vin_list, packet, int(from_time), int(to_time), final_field_list, row_id, fname,
                                   store)
+            t2 = datetime.now()
+            t3 = (t2 - t1).total_seconds() / 60.0
+            update_statistics(from_time, to_time, 'COS', row_id, packet, vin_list, t3, config)
+
         elif store == 'CLOUDANT':
+            t1 = datetime.now()
             Path(f"{row_id}/{store}/{packet}").mkdir(parents=True, exist_ok=True)
-            dwnld_status = cld_dd(vin_list, packet, int(from_time), int(to_time), final_field_list, row_id, fname,
-                                  store)
+            dwnld_status = cld_dd(vin_list, packet, int(from_time), int(to_time), final_field_list, row_id, fname, store)
+            t2 = datetime.now()
+            t3 = (t2 - t1).total_seconds() / 60.0
+            update_statistics(from_time, to_time, 'CLOUDANT', row_id, packet, vin_list, t3, config)
         elif store == 'PROCESSED':
+            t1 = datetime.now()
             dwnld_status = mysql_dd(vin_list, packet, from_time, to_time, final_field_list, row_id, fname, store)
+            t2 = datetime.now()
+            t3 = (t2 - t1).total_seconds() / 60.0
+            update_statistics(from_time, to_time, 'PROCESSED', row_id, packet, vin_list, t3, config)
         else:
             dwnld_status = 0
 
     return dwnld_status
 
+
+def update_statistics(from_time: str, to_time: str, source_name: str, row_id: int, packet: str, vin_list: list, t3: float, config: dict) -> None:
+    """
+    Update statistics for a data access request file.
+
+    Parameters:
+        from_time (str): Start time of the data access request in the format specified by `config['timestamp_fmt']`.
+        to_time (str): End time of the data access request in the format specified by `config['timestamp_fmt']`.
+        source_name (str): Name of the data source for the request.
+        row_id (int): ID of the data access request.
+        packet (str): Name of the packet associated with the data access request.
+        vin_list (list): List of unique VINs accessed in the data access request.
+        t3 (float): Time taken to prepare the request file.
+        config (dict): Dictionary containing configuration parameters for the statistics update process.
+
+    Returns:
+        None
+    """
+    # Convert from_time and to_time to datetime objects
+    time_fmt = config['timestamp_fmt']
+    start_time = datetime.strptime(from_time, time_fmt)
+    end_time = datetime.strptime(to_time, time_fmt)
+
+    # Calculate number of days between start_time and end_time
+    delta = end_time - start_time
+    days = delta.days
+
+    # Create a new DataFrame to store the statistics
+    stats_df = pd.DataFrame({
+        'data_access_request_id': [row_id],
+        'source_container_name': [packet],
+        'source_name': [source_name],
+        'unique_vin_count': [len(set(vin_list))],
+        'day_count': [days],
+        'time_taken': [t3],
+        'prepared_date': [date.today()],
+        'created_by': 'DAM/Python',
+        'created_time': datetime.now()
+    })
+
+    # Insert the statistics into the database
+    try:
+        conn = dcu.mysql_connection_uptime()
+        stats_df.to_sql(name='request_file_prepare_statistics', con=conn, if_exists='append', index=False)
+        conn.close()
+    except ConnectionError as e:
+        logging.critical("Database Connection Error!", str(e))

@@ -1,3 +1,4 @@
+"""This is the main script for processing scheduled download request."""
 import os
 import json
 import logging
@@ -33,7 +34,7 @@ def schedule_process(row):
     elif freq.upper() == 'WEEKLY':
         temp_from_time = date.today() - timedelta(days=7)
         sch_end_time = date.today() + timedelta(days=7)
-    elif freq.upper() == 'FORTNIGHTLY':
+    elif freq.upper() == 'FORTNIGHT':
         temp_from_time = date.today() - timedelta(days=14)
         sch_end_time = date.today() + timedelta(days=14)
     elif freq.upper() == 'MONTHLY':
@@ -44,9 +45,11 @@ def schedule_process(row):
     to_time = str(temp_to_time).replace('-', '') + '235959'
     from_time = str(temp_from_time).replace('-', '') + '000000'
 
+    logging.info("Retrieving the requested status ID.")
     query_status = f"SELECT id as status_id from {status_table} where upper(name) = 'REQUESTED' and is_visible = 1"
     status_id_df = dcu.execute_query(dcu.mysql_connection_uptime(), query_status, 'return')
     status_id = status_id_df['status_id'][0]
+
     row['request_status_id'] = status_id
     row['request_from_time'] = from_time
     row['request_to_time'] = to_time
@@ -54,10 +57,13 @@ def schedule_process(row):
     row['is_request_processed'] = 0
     row['is_active'] = 1
     row['is_deleted'] = 0
-    row['request_remarks'] = f'{freq} scheduled request'
+    # row['request_remarks'] = f'{freq} scheduled request'
+    row['request_initiated_time'] = datetime.now()
+    row['request_initiated_by'] = 'Scheduler'
     row['created_by'] = 'Scheduler'
     row['created_time'] = datetime.now()
 
+    logging.info("Updating the scheduled request table in mysql with scheduled_end_time")
     query = f"UPDATE {table1} SET schedule_end_time = {str(sch_end_time).replace('-', '') + '235959'}, " \
             f"modified_by = '{mod_by}', " \
             f"modified_time = '{datetime.now()}' " \
@@ -70,15 +76,7 @@ def schedule_process(row):
 def main():
     query = f"SELECT m.id, " \
             f"s1.name as frequency, " \
-            f"m.schedule_telematics_name as request_telematics_name, " \
-            f"m.schedule_fert_code as request_fert_code, " \
-            f"m.schedule_fuel_type as request_fuel_type, " \
-            f"m.schedule_bs_norm as request_bs_norm, " \
-            f"m.schedule_vehicle_model as request_vehicle_model, " \
-            f"m.schedule_engine_series as request_engine_series, " \
-            f"m.schedule_vertical as request_vertical, " \
-            f"m.schedule_manufacture_year as request_manufacture_year, " \
-            f"m.schedule_manufacture_month as request_manufacture_month, " \
+            f"m.schedule_attribute_list as request_attribute_list, " \
             f"m.schedule_filter_condition as request_filter_condition, " \
             f"m.schedule_max_vin_count as request_max_vin_count " \
             f"FROM {table1} m left outer join {table2} s1 " \
@@ -96,20 +94,22 @@ def main():
 
     data = []
     if not sql_df.empty:
+        logging.info("New request(s) found!")
         for ind, row in sql_df.iterrows():
             row1 = schedule_process(row)
             data.append(row1)
 
         row_df = pd.DataFrame.from_records(data)
         if not row_df.empty:
-            # fin_df = row_df.fillna(value='')
             row_df.drop(columns=['id', 'frequency'], inplace=True)
 
         # Insert df into uptime request table
+        logging.info("Inserting into request table as a new request")
+        print(row_df.to_string())
         row_df.to_sql(name=req_table, con=dcu.mysql_connection_uptime(), if_exists='append', index=False)
     else:
         logging.info("No scheduled job found")
-        sys.exit(" Exiting process!")
+        sys.exit("No Jobs! Exiting process!")
 
 
 if __name__ == "__main__":
