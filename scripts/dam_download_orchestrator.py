@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, date
 from dam_object_store import data_downloader as cos_dd
 from dam_cloudant import data_downloader as cld_dd
 from dam_processed_data import data_downloader as mysql_dd
-from dam_dtc_dtc import data_downloader as dtc_dd
+from dam_dtc_data import data_downloader as dtc_dd
 
 with open('../conf/dam_configuration.json', encoding='utf-8') as config_file:
     config = json.load(config_file)
@@ -47,14 +47,13 @@ def vin_process(req_data):
 
     field_df = dcu.field_name_retrieval(field_id_plus)
     field_df_dtc = dcu.field_name_retrieval_dtc(field_id_plus)
-    
 
     # Preparing field name with unique packet name and list of all fields as value
     cloudant_field_dict = {k: g['fld_name'] for k, g in field_df.loc[field_df['src_name'] == 'raw'].groupby('src_type')}
     processed_field_dict = {k: g['fld_name'] for k, g in field_df.loc[field_df['src_name'] == 'processed'].groupby('src_type')}
     cos_field_dict = {k: g['cos_name'] for k, g in field_df.loc[field_df['src_name'] == 'raw'].groupby('src_type')}
 
-    dtc_field_dict = {k: g['curr_fld_name'] for k, g in field_df_dtc.loc[field_df_dtc['src_name'] == 'dtc'].groupby('curr_src_name')}
+    # dtc_field_dict = {k: g['curr_fld_name'] for k, g in field_df_dtc.loc[field_df_dtc['src_name'] == 'dtc'].groupby('curr_src_name')}
 
     field_tuple = (cloudant_field_dict, cos_field_dict, processed_field_dict)
 
@@ -64,7 +63,8 @@ def vin_process(req_data):
         to_time = str(req_data['request_to_time']).replace('-', '').replace(':', '').replace(' ', '')
         d_flag += download_data(row_id, field_tuple, dcu.vin_selector(req_data), from_time, to_time, 'common')
 
-        dtc_dd(row_id, field_df_dtc, dcu.vin_selector(req_data), from_time, to_time, 'common')
+        if not field_df_dtc.empty:
+            dtc_dd(row_id, field_df_dtc, dcu.vin_selector(req_data), from_time, to_time, 'common')
 
     else:
         logging.info("Vehicles are manually entered by user!")
@@ -78,7 +78,8 @@ def vin_process(req_data):
             to_time = datetime.strftime(tme, tmp_fmt)
             d_flag += download_data(row_id, field_tuple, vin_data['vin'], str(from_time), str(to_time), vin_data['vin'])
 
-            dtc_dd(row_id, field_df_dtc, dcu.vin_selector(req_data), str(from_time), str(to_time), vin_data['vin'])
+            if not field_df_dtc.empty:
+                dtc_dd(row_id, field_df_dtc, dcu.vin_selector(req_data), str(from_time), str(to_time), vin_data['vin'])
 
     # Concatenating and Merging Files
     for packet in cloudant_field_dict.keys():
@@ -86,18 +87,24 @@ def vin_process(req_data):
         concat_df = dcu.store_concat(row_id, packet, cloudant_field_dict[packet], cos_field_dict[packet], prcs_flag=0)
         if not concat_df.empty:
             concat_df.to_csv(f'{row_id}/{packet}.csv', index=False)
-            
-    for packet in dtc_field_dict.keys():
-        Path(f"{row_id}/{packet}").mkdir(parents=True, exist_ok=True)
-        concat_df = dcu.store_concat(row_id, packet, dtc_field_dict[packet], cos_field_dict[packet], prcs_flag=0)
-        if not concat_df.empty:
-            concat_df.to_csv(f'{row_id}/{packet}.csv', index=False)
 
     for packet in processed_field_dict.keys():
         concat_df = dcu.store_concat(row_id, packet, '', '', prcs_flag=1)
         if not concat_df.empty:
             concat_df.to_csv(f'{row_id}/mysql_merged_data.csv', index=False)
-
+    
+    # Concatenating and Merging DTC data        
+    # for packet in dtc_field_dict.keys():
+    #     Path(f"{row_id}/{packet}").mkdir(parents=True, exist_ok=True)
+    #     concat_df = dcu.store_concat(row_id, packet, dtc_field_dict[packet], cos_field_dict[packet], prcs_flag=0)
+    #     if not concat_df.empty:
+    #         concat_df.to_csv(f'{row_id}/{packet}.csv', index=False)
+            
+    for packet in processed_field_dict.keys():
+        concat_df = dcu.store_concat(row_id, packet, '', '', prcs_flag=1)
+        if not concat_df.empty:
+            concat_df.to_csv(f'{row_id}/mysql_merged_data.csv', index=False)
+            
     try:
         dcu.merge_data(row_id)
     except OSError as e:
