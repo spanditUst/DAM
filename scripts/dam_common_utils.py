@@ -1,15 +1,14 @@
 """This script contains method for reusability and de cluttering of the main method"""
 import json
 import os
-import shutil
 import sys
+import shutil
 import logging
-import ibm_boto3
+import zipfile
 import pandas as pd
 import sqlalchemy as db
 from pathlib import Path
 from urllib.parse import quote
-from ibm_botocore.client import Config
 from datetime import datetime, timedelta
 
 with open('../conf/dam_configuration.json', encoding='utf-8') as config_file:
@@ -20,18 +19,6 @@ table1 = config["req_tbl_main"]
 table2 = config["req_lkp_tbl_status"]
 mod_by = config["modified_by"]
 tm_fmt = config["timestamp_fmt"]
-
-
-def init_cos():
-    """
-    :return: COS connect string
-    """
-    cos_endpoint = config['COS_ENDPOINT']
-    cos_api = config['COS_API_KEY_ID']
-    cos_crn = config['COS_INSTANCE_CRN']
-    cos = ibm_boto3.resource("s3", ibm_api_key_id=cos_api, ibm_service_instance_id=cos_crn,
-                             config=Config(signature_version="oauth"), endpoint_url=cos_endpoint)
-    return cos
 
 
 def mysql_connection_sa():
@@ -80,6 +67,16 @@ def mysql_connection_protech():
     conn_str = engine.connect()
 
     return conn_str
+
+
+def non_empty_file(path):
+    final_list = []
+    file_list = os.listdir(path)
+    for file in file_list:
+        if not os.stat(f"{path}/{file}").st_size == 0:
+            final_list.append(file)
+
+    return final_list
 
 
 def clean_raw_data(row_id):
@@ -258,16 +255,16 @@ def store_concat(row_id, packet, cloudant_fields, cos_fields, prcs_flag):
         store = ''
 
         try:
-            name_replace_dict = {cloudant_fields.tolist()[i]: cos_fields.tolist()[i] for i in range(len(cloudant_fields))}
-            cos_file_list = os.listdir(f'{row_id}/COS/{packet}/')
+            name_replace_dict = {cos_fields.tolist()[i]: cloudant_fields.tolist()[i] for i in range(len(cloudant_fields))}
+            cos_file_list = non_empty_file(f'{row_id}/COS/{packet}/')
             if cos_file_list:
                 cos_combined_df = pd.concat([pd.read_csv(f"{row_id}/COS/{packet}/{f}") for f in cos_file_list], axis=0)
-                cos_combined_df.rename(name_replace_dict, inplace=True)
+                cos_combined_df.rename(columns=name_replace_dict, inplace=True)
                 store = store + 'cos'
         except FileNotFoundError:
             pass
         try:
-            cld_file_list = os.listdir(f'{row_id}/CLOUDANT/{packet}/')
+            cld_file_list = non_empty_file(f'{row_id}/CLOUDANT/{packet}/')
             if cld_file_list:
                 cld_combined_df = pd.concat([pd.read_csv(f"{row_id}/CLOUDANT/{packet}/{f}") for f in cld_file_list],
                                             axis=0)
@@ -392,6 +389,7 @@ def vin_selector(req_data):
 
     # Concatenating strings to build final query
     query = base + query[5:]
+    logging.info(f"Query for tag filter: {query}")
 
     sql_df = execute_query(mysql_connection_uptime(), query, 'return')
 
@@ -445,13 +443,20 @@ def apply_value_filter(row_id, value_filter_str):
             logging.info("Applying filters on the downloaded data.")
             try:
                 filtered_df = data_df.query(value_filter_str)
-                filtered_df.to_csv(f"{row_id}/" + file.replace('.csv', '_filtered.csv'))
+                filtered_df.to_csv(f"{row_id}/" + file.replace('.csv', '_filtered.csv'), index=False)
             except KeyError:
                 logging.info("Filters not applicable for the downloaded data.")
         else:
             logging.info("No Filter to be applied.")
-            print(file)
-            data_df.to_csv(f"{row_id}/" + file.replace('.csv', '_filtered.csv'))
+            data_df.to_csv(f"{row_id}/" + file.replace('.csv', '_filtered.csv'), index=False)
+
+
+def zip_folder(folder_path, output_path):
+    with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+        for root, dirs, files in os.walk(folder_path):
+            for file in files:
+                file_path = os.path.join(root, file)
+                zip_file.write(file_path, os.path.relpath(file_path, folder_path))
 
 
 def ssd_operation(row_id):
@@ -467,7 +472,9 @@ def ssd_operation(row_id):
         for file in file_list:
             os.rename(f"{row_id}/{file}", f"{ssd_path}/{file}")
 
-        query = f"UPDATE {table1} SET processed_file_locator = '{ssd_path}', " \
+        zip_folder(f"{ssd_path}/", f"{ssd_path}.zip")
+
+        query = f"UPDATE {table1} SET processed_file_locator = '{ssd_path}.zip', " \
                 f"processed_file_expiry_datetime = '{expiry_time}', " \
                 f"modified_by = '{mod_by}', " \
                 f"modified_time = '{datetime.now()}' " \

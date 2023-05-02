@@ -60,13 +60,15 @@ def data_downloader(row_id, field_df, vin_list, from_time, to_time, fname):
         # Wabco DTC data fetching process
         if wabco_flag:
             if from_time >= wabco_date:
-                cld_dd(vin_list, cld_dtc_db, int(from_time), int(to_time), field_list_curr, row_id, fname, 'CLOUDANT')
+                logging.info("Cloudant for Wabco DTC is in progress")
+                # cld_dd(vin_list, cld_dtc_db, int(from_time), int(to_time), field_list_curr, row_id, fname, 'CLOUDANT')
             elif to_time < wabco_date:
                 query = f"select chasisid, packetdateime, CONCAT(dtccode, '-', ftb) as dtccode, occurancecount from {wabco_tbl} " \
                         f"where chasisid in ({vin_list}) and packetdateime > {s_dt} and packetdateime < {e_dt} and dtccode in {field_list_hist};"
                 file_prcsng(query, row_id, wabco_tbl, fname)
             else:
-                cld_dd(vin_list, cld_dtc_db, int(wabco_date), int(to_time), field_list_curr, row_id, fname, 'CLOUDANT')
+                logging.info("Cloudant for Volvo DTC is in progress")
+                # cld_dd(vin_list, cld_dtc_db, int(wabco_date), int(to_time), field_list_curr, row_id, fname, 'CLOUDANT')
                 query = f"select chasisid, packetdateime, CONCAT(dtccode, '-', ftb) as dtccode, occurancecount from {wabco_tbl} " \
                         f"where chasisid in ({vin_list}) and packetdateime > {s_dt} and packetdateime < {wabco_dt} and dtccode in {field_list_hist};"
                 file_prcsng(query, row_id, wabco_tbl, fname)
@@ -74,13 +76,15 @@ def data_downloader(row_id, field_df, vin_list, from_time, to_time, fname):
         # Volvo DTC data fetching process
         else:
             if from_time >= volvo_date:
-                cld_dd(vin_list, 'vfaults', int(from_time), int(to_time), field_list_curr, row_id, fname, 'CLOUDANT')
+                logging.info("Cloudant for Volvo DTC is in progress")
+                # cld_dd(vin_list, 'vfaults', int(from_time), int(to_time), field_list_curr, row_id, fname, 'CLOUDANT')
             elif to_time < volvo_date:
                 query = f"select chasisid, packetdateime, CONCAT(dtccode, '-', HEX(failuretypevalue)) as dtccode, occurancecount from volvofaultitems " \
                         f"where chasisid in ({vin_list}) and packetdateime > {s_dt} and packetdateime < {e_dt} and dtccode in {field_list_hist};"
                 file_prcsng(query, row_id, 'volvofaultitems', fname)
             else:
-                cld_dd(vin_list, 'vfaults', int(volvo_date), int(to_time), field_list_curr, row_id, fname, 'CLOUDANT')
+                logging.info("Cloudant for Volvo DTC is in progress")
+                # cld_dd(vin_list, 'vfaults', int(volvo_date), int(to_time), field_list_curr, row_id, fname, 'CLOUDANT')
                 query = f"select chasisid, packetdateime, CONCAT(dtccode, '-', HEX(failuretypevalue)) as dtccode, occurancecount from volvofaultitems " \
                         f"where chasisid in ({vin_list}) and packetdateime > {s_dt} and packetdateime < {volvo_dt} and dtccode in {field_list_hist};"
                 file_prcsng(query, row_id, 'volvofaultitems', fname)
@@ -90,6 +94,14 @@ def data_downloader(row_id, field_df, vin_list, from_time, to_time, fname):
 
 
 # if __name__=='__main__':
+#     import os
+#     pat = '95/CLOUDANT/fuel/'
+#     print(dcu.non_empty_file(pat))
+#     import zipfile
+#     row_id = '95'
+#     ssd = config['ssd_path']
+#     ssd_path = config['ssd_path'] + f"{row_id}"
+#     dcu.zip_folder('SSD/95/', 'SSD/')
 #     field_list = [254, 255]
 #     fld_list = str(field_list).replace("'", "").replace('[', '').replace(']', '')
 #     df = dcu.field_name_retrieval_dtc(fld_list)

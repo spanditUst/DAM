@@ -5,6 +5,8 @@ import json
 import logging
 from pathlib import Path
 import pandas as pd
+import ibm_boto3
+from ibm_botocore.client import Config
 from datetime import datetime, timedelta
 from ibm_botocore import exceptions
 import dam_common_utils as dcu
@@ -43,9 +45,19 @@ def packet_name(db_txt):
     return val
 
 
+def init_cos():
+    """
+    :return: COS connect string
+    """
+    cos_endpoint = config['COS_ENDPOINT']
+    cos_api = config['COS_API_KEY_ID']
+    cos_crn = config['COS_INSTANCE_CRN']
+    cos = ibm_boto3.resource("s3", ibm_api_key_id=cos_api, ibm_service_instance_id=cos_crn, config=Config(signature_version="oauth"), endpoint_url=cos_endpoint)
+    return cos
+
+
 def keyname_decode(bucket_name, key_list):
-    cos = dcu.init_cos
-    files = cos.Bucket(bucket_name).objects.all()
+    files = init_cos().Bucket(bucket_name).objects.all()
     return [a.key for k in key_list for a in files if k in a.key]
 
 
@@ -88,7 +100,7 @@ def dwnld_prcs_data(final_list, bucket_name, sta_dt, end_dt, vehicle_list, field
     :param field_list: List of fields selected by user
     :return: Status
     """
-    cos = dcu.init_cos
+    cos = init_cos()
     if final_list != '':
         for item in final_list:
             logging.info("%s will be downloaded.", item)
@@ -110,10 +122,15 @@ def dwnld_prcs_data(final_list, bucket_name, sta_dt, end_dt, vehicle_list, field
             veh_list = vehicle_list.split(',')
 
             # fetching data for request vin, datetime and fields.
-            raw_df = raw_df[raw_df['deviceId'].isin(veh_list)]
-            raw_df['eventDateTime'] = pd.to_datetime(raw_df['utc'].astype('int64') + 946684800, unit='s')
-            df1 = raw_df[(raw_df['eventDateTime'] > sta_dt) & (raw_df['eventDateTime'] < end_dt)]
-            df1 = dcu.dtc_process2(df1, field_list)
+            if 'volvo' in bucket_name:
+                raw_df = raw_df[raw_df['vin'].isin(veh_list)]
+                df1 = raw_df[(raw_df['eventDateTime'] > int(sta_dt)) & (raw_df['eventDateTime'] < int(end_dt))]
+            else:
+                raw_df = raw_df[raw_df['deviceId'].isin(veh_list)]
+                raw_df['eventDateTime'] = pd.to_datetime(raw_df['utc'].astype('int64') + 946684800, unit='s')
+                df1 = raw_df[(raw_df['eventDateTime'] > sta_dt) & (raw_df['eventDateTime'] < end_dt)]
+            df1 = df1[field_list]
+            # df1 = dcu.dtc_process2(df1, field_list)
 
             # Downloading file in CSV format
             df1.to_csv(dwnld_file_name.replace('.parquet', '.csv').replace('parquet_folder', 'intercsv_folder'), index=False)

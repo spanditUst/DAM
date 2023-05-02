@@ -178,6 +178,8 @@ def dwnld_prcs_data(filename, db_txt, field_config, field_list):
         df_data[field_list].to_csv(out_filename, index=False)
 
     elif wcanbs46 in db_txt:
+        print(df_data.columns)
+        print(field_list)
         field_name_map(df_data, field_config[wcanbs46], field_list).to_csv(out_filename, index=False)
 
     elif wcanbs6 in db_txt:
