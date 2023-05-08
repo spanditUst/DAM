@@ -22,7 +22,7 @@ walert = config["cloudant_wabco_alert_db"]
 dtc = config["cloudant_dtc_db"]
 
 
-def field_name_map(data_df, col_str, field_list):
+def field_name_map(data_df, col_str, field_list, extra_col):
     """
     This Method maps value field's data to their respective field name for Wabco
     :param data_df: value field data
@@ -30,9 +30,11 @@ def field_name_map(data_df, col_str, field_list):
     :param field_list: fields selected by user
     :return: value data with field names
     """
-
     # Splitting and Mapping 'value' field to their field names
-    data_df[col_str.split(',')] = data_df['value'].str.split(',', expand=True)
+    if 'kinesis_arrival_time' in data_df:
+        data_df[col_str.split(',')] = data_df['value'].str.split(',', expand=True)
+    else:
+        data_df[col_str.split(',')[:-extra_col]] = data_df['value'].str.split(',', expand=True)
 
     # Dropping the 'value' column from dataframe
     data_df.drop(['value'], axis=1, inplace=True)
@@ -178,15 +180,13 @@ def dwnld_prcs_data(filename, db_txt, field_config, field_list):
         df_data[field_list].to_csv(out_filename, index=False)
 
     elif wcanbs46 in db_txt:
-        print(df_data.columns)
-        print(field_list)
-        field_name_map(df_data, field_config[wcanbs46], field_list).to_csv(out_filename, index=False)
+        field_name_map(df_data, field_config[wcanbs46], field_list, 1).to_csv(out_filename, index=False)
 
     elif wcanbs6 in db_txt:
-        field_name_map(df_data, field_config[wcanbs6], field_list).to_csv(out_filename, index=False)
+        field_name_map(df_data, field_config[wcanbs6], field_list, 1).to_csv(out_filename, index=False)
 
     elif wcan3bs6 in db_txt:
-        field_name_map(df_data, field_config[wcan3bs6], field_list).to_csv(out_filename, index=False)
+        field_name_map(df_data, field_config[wcan3bs6], field_list, 4).to_csv(out_filename, index=False)
 
     elif walert in db_txt:
         walert_process(df_data, field_config, field_list).to_csv(out_filename, index=False)

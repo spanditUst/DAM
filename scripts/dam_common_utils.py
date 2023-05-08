@@ -10,6 +10,7 @@ import sqlalchemy as db
 from pathlib import Path
 from urllib.parse import quote
 from datetime import datetime, timedelta
+from exchangelib import Credentials, Account, Message, Mailbox, FileAttachment, Configuration, HTMLBody, DELEGATE
 
 with open('../conf/dam_configuration.json', encoding='utf-8') as config_file:
     config = json.load(config_file)
@@ -19,6 +20,8 @@ table1 = config["req_tbl_main"]
 table2 = config["req_lkp_tbl_status"]
 mod_by = config["modified_by"]
 tm_fmt = config["timestamp_fmt"]
+ADMIN_ID = config['email_admin_id']
+ADMIN_PASSWORD = config['email_admin_password']
 
 
 def mysql_connection_sa():
@@ -280,9 +283,9 @@ def store_concat(row_id, packet, cloudant_fields, cos_fields, prcs_flag):
             ret_df = cld_combined_df
 
     else:
-        prcs_file_list = os.listdir(f'{row_id}/PROCESSED/')
+        prcs_file_list = os.listdir(f'{row_id}/PROCESSED/{packet}')
         if prcs_file_list:
-            ret_df = pd.concat([pd.read_csv(f"{row_id}/PROCESSED/{f}") for f in prcs_file_list], axis=0)
+            ret_df = pd.concat([pd.read_csv(f"{row_id}/PROCESSED/{packet}/{f}") for f in prcs_file_list], axis=0)
 
     return ret_df
 
@@ -421,7 +424,8 @@ def process_value_filter(value_filters, field_id):
         for d in filter_dict:
             field_id_str = field_id_str + ',' + str(d['id'])
             col = d['name'].split('-')[1]
-            val_filter = val_filter + f"{col} {d['logicalOperator']} {d['filter']}"
+            operator = '==' if d['logicalOperator'] == '=' else d['logicalOperator']
+            val_filter = val_filter + f"{col} {operator} {d['filter']}"
             val_filter = val_filter + ' & '
         k = val_filter.rfind(" & ")
         val_filter = val_filter[:k]
@@ -442,10 +446,12 @@ def apply_value_filter(row_id, value_filter_str):
         if not value_filter_str == '':
             logging.info("Applying filters on the downloaded data.")
             try:
+                value_filter_str = value_filter_str.replace(':', "_")
+                data_df.columns = data_df.columns.str.replace(':', "_")
                 filtered_df = data_df.query(value_filter_str)
                 filtered_df.to_csv(f"{row_id}/" + file.replace('.csv', '_filtered.csv'), index=False)
-            except KeyError:
-                logging.info("Filters not applicable for the downloaded data.")
+            except Exception as e:
+                logging.info("Filters not applicable for the downloaded data.\nError: ", e)
         else:
             logging.info("No Filter to be applied.")
             data_df.to_csv(f"{row_id}/" + file.replace('.csv', '_filtered.csv'), index=False)
@@ -518,3 +524,29 @@ def convert_to_utc(date_str, time_str):
     epoch_time = datetime.strptime("20000101000000", tm_fmt)
     return int((edatetime - epoch_time).total_seconds())
 
+
+def email_with_text(send_to, cc_to, subject, body_text):
+    body_text_for_html = body_text.replace('\n', '<BR>')
+    send = []
+    for i in send_to.split(","):
+        send.append(Mailbox(email_address=i))
+    if len(send) == 0:
+        return "No Email ID's passed"
+
+    cc = []
+    for i in cc_to.split(","):
+        cc.append(Mailbox(email_address=i))
+
+    ews_url = 'https://webmail.vecv.in/EWS/Exchange.asmx'
+    ews_auth_type = 'NTLM'
+    primary_smtp_address = ADMIN_ID
+    cred = Credentials(ADMIN_ID, ADMIN_PASSWORD)
+
+    configu = Configuration(service_endpoint=ews_url, credentials=cred, auth_type=ews_auth_type)
+    acc = Account( primary_smtp_address=primary_smtp_address, config=configu, autodiscover=False, access_type=DELEGATE)
+
+    if len(cc_to) > 0:
+        m = Message(account=acc, subject=subject, body=HTMLBody(body_text_for_html), to_recipients=send, cc_recipients=cc)
+    if len(cc_to) == 0:
+        m = Message(account=acc, subject=subject, body=HTMLBody(body_text_for_html), to_recipients=send)
+    m.send()
