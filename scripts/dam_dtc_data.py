@@ -1,8 +1,10 @@
 """ DTC processing module"""
 import logging
 import json
+from pathlib import Path
 from datetime import datetime
 import dam_common_utils as dcu
+import pandas as pd
 from dam_cloudant import data_downloader as cld_dd
 
 with open('../conf/dam_configuration.json', encoding='utf-8') as config_file:
@@ -30,6 +32,7 @@ def file_prcsng(query, row_id, pkt_name, fname):
     sql_df = dcu.execute_query(dcu.mysql_connection_protech(), query, 'return')
     t_df = sql_df.pivot(index=['chasisid', 'packetdateime'], columns='dtccode', values='occurancecount')
     t_df.fillna(0, inplace=True)
+    Path(f"{row_id}/PROCESSED/{pkt_name}").mkdir(parents=True, exist_ok=True)
     filename = f"{row_id}/PROCESSED/{pkt_name}/{fname}.csv"
     t_df.to_csv(filename, index=False)
 
@@ -47,6 +50,7 @@ def data_downloader(row_id, field_df, vin_list, from_time, to_time, fname):
         s_dt = "'" + str(datetime.strptime(from_time, tm_fmt)) + "'"
         e_dt = "'" + str(datetime.strptime(to_time, tm_fmt)) + "'"
         wabco_flag = 1 if field_df['curr_src_name'][0] == cld_dtc_db else 0
+        vin_list = str(vin_list.split(',')).replace('[', '').replace(']', '')
         curr_field_dict = {k: g['curr_fld_name'] for k, g in field_df.loc[field_df['src_name'] == 'dtc'].groupby('curr_src_name')}
         hist_field_dict = {k: g['hist_fld_name'] for k, g in field_df.loc[field_df['src_name'] == 'dtc'].groupby('hist_src_name')}
         
@@ -63,14 +67,21 @@ def data_downloader(row_id, field_df, vin_list, from_time, to_time, fname):
                 logging.info("Cloudant for Wabco DTC is in progress")
                 # cld_dd(vin_list, cld_dtc_db, int(from_time), int(to_time), field_list_curr, row_id, fname, 'CLOUDANT')
             elif to_time < wabco_date:
-                query = f"select chasisid, packetdateime, CONCAT(dtccode, '-', ftb) as dtccode, occurancecount from {wabco_tbl} " \
-                        f"where chasisid in ({vin_list}) and packetdateime > {s_dt} and packetdateime < {e_dt} and dtccode in {field_list_hist};"
+                logging.info("MySQL for Wabco DTC is in progress")
+                query = f"select a.chasisid, a.packetdateime, a.dtccode, a.occurancecount from " \
+                        f"(select chasisid, packetdateime, CONCAT(dtccode, ':', ftb) as dtccode, occurancecount from " \
+                        f"{wabco_tbl} where chasisid in ({vin_list}) " \
+                        f"and packetdateime > {s_dt} and packetdateime < {e_dt}) a " \
+                        f"where a.dtccode in {field_list_hist};"
                 file_prcsng(query, row_id, wabco_tbl, fname)
             else:
-                logging.info("Cloudant for Volvo DTC is in progress")
+                logging.info("Cloudant+MySQL for Wabco DTC is in progress")
                 # cld_dd(vin_list, cld_dtc_db, int(wabco_date), int(to_time), field_list_curr, row_id, fname, 'CLOUDANT')
-                query = f"select chasisid, packetdateime, CONCAT(dtccode, '-', ftb) as dtccode, occurancecount from {wabco_tbl} " \
-                        f"where chasisid in ({vin_list}) and packetdateime > {s_dt} and packetdateime < {wabco_dt} and dtccode in {field_list_hist};"
+                query = f"select a.chasisid, a.packetdateime, a.dtccode, a.occurancecount from " \
+                        f"(select chasisid, packetdateime, CONCAT(dtccode, ':', ftb) as dtccode, occurancecount from " \
+                        f"{wabco_tbl} where chasisid in ({vin_list}) " \
+                        f"and packetdateime > {s_dt} and packetdateime < {e_dt}) a " \
+                        f"where a.dtccode in {field_list_hist};"
                 file_prcsng(query, row_id, wabco_tbl, fname)
 
         # Volvo DTC data fetching process
@@ -79,21 +90,41 @@ def data_downloader(row_id, field_df, vin_list, from_time, to_time, fname):
                 logging.info("Cloudant for Volvo DTC is in progress")
                 # cld_dd(vin_list, 'vfaults', int(from_time), int(to_time), field_list_curr, row_id, fname, 'CLOUDANT')
             elif to_time < volvo_date:
-                query = f"select chasisid, packetdateime, CONCAT(dtccode, '-', HEX(failuretypevalue)) as dtccode, occurancecount from volvofaultitems " \
-                        f"where chasisid in ({vin_list}) and packetdateime > {s_dt} and packetdateime < {e_dt} and dtccode in {field_list_hist};"
-                file_prcsng(query, row_id, 'volvofaultitems', fname)
+                logging.info("MySQL for Volvo DTC is in progress")
+                query = f"select a.chasisid, a.packetdateime, a.dtccode, a.occurancecount from " \
+                        f"(select chasisid, packetdateime, CONCAT(dtccode, ':', HEX(failuretypevalue)) as dtccode, occurancecount from " \
+                        f"{volvo_tbl} where chasisid in ({vin_list}) " \
+                        f"and packetdateime > {s_dt} and packetdateime < {e_dt}) a " \
+                        f"where a.dtccode in {field_list_hist};"
+                file_prcsng(query, row_id, volvo_tbl, fname)
             else:
-                logging.info("Cloudant for Volvo DTC is in progress")
+                logging.info("Cloudant+MySQL for Volvo DTC is in progress")
                 # cld_dd(vin_list, 'vfaults', int(volvo_date), int(to_time), field_list_curr, row_id, fname, 'CLOUDANT')
-                query = f"select chasisid, packetdateime, CONCAT(dtccode, '-', HEX(failuretypevalue)) as dtccode, occurancecount from volvofaultitems " \
-                        f"where chasisid in ({vin_list}) and packetdateime > {s_dt} and packetdateime < {volvo_dt} and dtccode in {field_list_hist};"
-                file_prcsng(query, row_id, 'volvofaultitems', fname)
+                query = f"select a.chasisid, a.packetdateime, a.dtccode, a.occurancecount from " \
+                        f"(select chasisid, packetdateime, CONCAT(dtccode, ':', HEX(failuretypevalue)) as dtccode, occurancecount from " \
+                        f"{volvo_tbl} where chasisid in ({vin_list}) " \
+                        f"and packetdateime > {s_dt} and packetdateime < {e_dt}) a " \
+                        f"where a.dtccode in {field_list_hist};"
+                file_prcsng(query, row_id, volvo_tbl, fname)
 
     else:
         logging.warning("Alert!! The Requested data is beyond %s.", cutt_off)
 
-
-# if __name__=='__main__':
+if __name__=='__main__':
+    email_id = config['sent_email']
+    dcu.email_with_text(email_id, '',
+                        'Data Access Module Notification',
+                        f"\nTeam, \n\nData download is complete for request 158"
+                        "\n Please visit portal for download. "
+                        "\n\nThanks,"
+                        "\nData Access Module")
+#     df = pd.read_csv('./temp/common.csv')
+#     try:
+#         df.columns = df.columns.str.replace(':', "_")
+#         df1 = df.query("speed == 1")
+#         print(df1)
+#     except Exception as e:
+#         print(e)
 #     import os
 #     pat = '95/CLOUDANT/fuel/'
 #     print(dcu.non_empty_file(pat))

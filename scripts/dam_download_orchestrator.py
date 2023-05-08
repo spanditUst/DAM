@@ -71,12 +71,12 @@ def vin_process(req_data):
         offset_month = req_data['request_number_of_months']
         tmp_fmt = config['timestamp_fmt']
         for vin_data in json.loads(req_data['request_vin_list']):
-            tme = datetime.strptime(vin_data['dateoffailure'], config['date_format'])
+            tme = datetime.strptime(vin_data['dateOfFailure'], config['date_format'])
 
-            from_time_fmt = tme - timedelta(days=1 * int(offset_month))
+            from_time_fmt = tme - timedelta(days=30 * int(offset_month))
             from_time = datetime.strftime(from_time_fmt, tmp_fmt)
             to_time = datetime.strftime(tme, tmp_fmt)
-            d_flag += download_data(row_id, field_tuple, vin_data['vin'], str(from_time), str(to_time), vin_data['vin'])
+            d_flag += download_data(row_id, field_tuple, str(vin_data['vin']), str(from_time), str(to_time), vin_data['vin'])
 
             if not field_df_dtc.empty:
                 dtc_dd(row_id, field_df_dtc, dcu.vin_selector(req_data), str(from_time), str(to_time), vin_data['vin'])
@@ -115,6 +115,9 @@ def vin_process(req_data):
     dcu.ssd_operation(row_id)
     dcu.clean_raw_data(row_id)
 
+    email_id = str(req_data['created_by'])
+    email_id = config['sent_email']
+
     if d_flag:
         logging.info("All the packets were downloaded")
         query = f"UPDATE {table1} SET request_status_id = (select id from {table2} " \
@@ -127,6 +130,12 @@ def vin_process(req_data):
                 f" where id = {row_id};"
         # f"request_remarks = 'Data Download Request completed successfully', " \
         dcu.execute_query(dcu.mysql_connection_uptime(), query, 'no_return')
+        dcu.email_with_text(email_id, '',
+                            'Data Access Module Notification',
+                            f"\nTeam, \n\nData download is complete for request {row_id}"
+                            "\n Please visit portal for download. "
+                            "\n\nThanks,"
+                            "\nData Access Module")
     else:
         logging.warning("All the packets were not downloaded")
         query = f"UPDATE {table1} SET request_status_id = (select id from {table2} where UPPER(name) = 'COMPLETED' and is_visible = 1), " \
@@ -138,6 +147,13 @@ def vin_process(req_data):
                 f"where id = {row_id};"
         # f"request_remarks = 'Data for few packets not available for the time range', " \
         dcu.execute_query(dcu.mysql_connection_uptime(), query, 'no_return')
+        dcu.email_with_text(email_id, '',
+                            'Data Access Module Notification',
+                            f"\nTeam, \n\nData download is complete for request {row_id}"
+                            "\n Please visit portal for download. "
+                            "\n\nThanks,"
+                            "\nData Access Module")
+
     logging.info("Closing the Download process for request: %s", row_id)
     logging.info("")
 
@@ -192,7 +208,7 @@ def download_data(row_id, field_tuple, vin_list, from_time, to_time, filename):
     prcsd_status = 1
     if processed_field_dict:
         logging.info("Requesting data from DB tables")
-        prcsd_status = download_iteration_storewise(vin_list, processed_field_dict, row_id, archival_time, to_time,
+        prcsd_status = download_iteration_storewise(vin_list, processed_field_dict, row_id, from_time, to_time,
                                                     'PROCESSED', filename)
 
     # Changing the COS field names to cloudant field names
@@ -221,6 +237,8 @@ def download_iteration_storewise(vin_list, field_dict, row_id, from_time, to_tim
     logging.info("Checking for request cancellation")
     dcu.check_cancellation_request(row_id)
 
+    dwnld_status = 0
+
     logging.info("Request has not been cancelled. Proceeding with the download!")
     for packet, fields in field_dict.items():
 
@@ -246,6 +264,7 @@ def download_iteration_storewise(vin_list, field_dict, row_id, from_time, to_tim
             update_statistics(from_time, to_time, 'CLOUDANT', row_id, packet, vin_list, t3, config)
         elif store == 'PROCESSED':
             t1 = datetime.now()
+            Path(f"{row_id}/{store}/{packet}").mkdir(parents=True, exist_ok=True)
             dwnld_status = mysql_dd(vin_list, packet, from_time, to_time, final_field_list, row_id, fname, store)
             t2 = datetime.now()
             t3 = (t2 - t1).total_seconds() / 60.0

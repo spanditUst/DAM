@@ -25,7 +25,8 @@ def main():
                     f"request_attribute_list, " \
                     f"m.request_filter_condition, " \
                     f"m.request_max_vin_count, " \
-                    f"m.request_number_of_months " \
+                    f"m.request_number_of_months, " \
+                    f"m.created_by " \
                     f"from {table1} m " \
                     f"inner join {table2} s1 " \
                     f"on m.request_status_id = s1.id " \
