@@ -59,8 +59,6 @@ def schedule_process(row):
     row['is_deleted'] = 0
     # row['request_remarks'] = f'{freq} scheduled request'
     row['request_initiated_time'] = datetime.now()
-    row['request_initiated_by'] = 'Scheduler'
-    row['created_by'] = 'Scheduler'
     row['created_time'] = datetime.now()
 
     logging.info("Updating the scheduled request table in mysql with scheduled_end_time")
@@ -78,7 +76,10 @@ def main():
             f"s1.name as frequency, " \
             f"m.schedule_attribute_list as request_attribute_list, " \
             f"m.schedule_filter_condition as request_filter_condition, " \
-            f"m.schedule_max_vin_count as request_max_vin_count " \
+            f"m.schedule_max_vin_count as request_max_vin_count, " \
+            f"m.schedule_remarks as request_remarks, " \
+            f"m.created_by as request_initiated_by, " \
+            f"m.created_by " \
             f"FROM {table1} m left outer join {table2} s1 " \
             f"on m.schedule_frequency_id = s1.id " \
             f"left outer join {table3} s2 " \
@@ -105,7 +106,6 @@ def main():
 
         # Insert df into uptime request table
         logging.info("Inserting into request table as a new request")
-        print(row_df.to_string())
         row_df.to_sql(name=req_table, con=dcu.mysql_connection_uptime(), if_exists='append', index=False)
     else:
         logging.info("No scheduled job found")
